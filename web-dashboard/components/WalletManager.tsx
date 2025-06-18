@@ -5,21 +5,37 @@ import { motion } from 'framer-motion'
 import { Plus, Trash2, RefreshCw, Send, Eye, EyeOff, Copy } from 'lucide-react'
 import toast from 'react-hot-toast'
 
-export function WalletManager() {
+interface WalletManagerProps {
+  sessionId: string | null
+}
+
+export function WalletManager({ sessionId }: WalletManagerProps) {
   const [wallets, setWallets] = useState([])
   const [loading, setLoading] = useState(true)
 
   const [isCreating, setIsCreating] = useState(false)
   const [distributionAmount, setDistributionAmount] = useState('')
 
-  // Load wallets on component mount
+  // Load wallets on component mount and when sessionId changes
   useEffect(() => {
     loadWallets()
-  }, [])
+  }, [sessionId])
 
   const loadWallets = async () => {
+    if (!sessionId) {
+      setWallets([])
+      setLoading(false)
+      return
+    }
+
     try {
-      const response = await fetch('http://localhost:3001/api/wallets')
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+      const response = await fetch(`${apiUrl}/api/sessions/${sessionId}/wallets`)
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch wallets')
+      }
+      
       const data = await response.json()
       
       setWallets(data.map(wallet => ({
@@ -29,33 +45,19 @@ export function WalletManager() {
     } catch (error) {
       console.error('Failed to load wallets:', error)
       toast.error('Failed to load wallets')
+      setWallets([])
     } finally {
       setLoading(false)
     }
   }
 
   const createWallet = async () => {
-    setIsCreating(true)
-    try {
-      // Simulate wallet creation
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      const newWallet = {
-        id: Date.now().toString(),
-        address: `${Math.random().toString(36).substring(2, 15)}...${Math.random().toString(36).substring(2, 8)}`,
-        solBalance: 0,
-        tokenBalance: 0,
-        isActive: false,
-        privateKeyVisible: false
-      }
-      
-      setWallets([...wallets, newWallet])
-      toast.success('New wallet created successfully!')
-    } catch (error) {
-      toast.error('Failed to create wallet')
-    } finally {
-      setIsCreating(false)
+    if (!sessionId) {
+      toast.error('Please start a trading session first to create wallets')
+      return
     }
+    
+    toast.info('Wallets are automatically created when you start a trading session')
   }
 
   const deleteWallet = (id: string) => {
@@ -247,13 +249,18 @@ export function WalletManager() {
 
       {wallets.length === 0 && (
         <div className="bg-gray-800 rounded-xl p-12 border border-gray-700 text-center">
-          <div className="text-gray-400 mb-4">No wallets created yet</div>
+          <div className="text-gray-400 mb-4">
+            {sessionId ? 'No wallets found for this session' : 'No active trading session'}
+          </div>
+          <div className="text-gray-500 text-sm mb-6">
+            {sessionId ? 'Wallets should be automatically created with the session' : 'Start a trading session to create wallets automatically'}
+          </div>
           <button
             onClick={createWallet}
             className="flex items-center space-x-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-200 mx-auto"
           >
             <Plus className="w-5 h-5" />
-            <span>Create Your First Wallet</span>
+            <span>{sessionId ? 'Refresh Wallets' : 'Start Trading Session'}</span>
           </button>
         </div>
       )}

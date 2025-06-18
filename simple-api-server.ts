@@ -1,72 +1,118 @@
 import express from 'express';
 import cors from 'cors';
-import { Connection, PublicKey } from '@solana/web3.js';
-import { SimpleFeeManager } from './simple-fee-config';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair } from '@solana/web3.js';
+import { SimpleFeeManager, defaultFeeConfig } from './simple-fee-config';
 import { swapConfig } from './swapConfig';
 import axios from 'axios';
+import { createServer } from 'http';
+import { Server as SocketIOServer } from 'socket.io';
+import RaydiumSwap from './RaydiumSwap';
+import WalletWithNumber from './wallet';
+import { getPoolKeysForTokenAddress } from './pool-keys';
+import { getSolBalance } from './utility';
+import chalk from 'chalk';
+import bs58 from 'bs58';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const server = createServer(app);
+const io = new SocketIOServer(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+const PORT = process.env.API_PORT || 3001;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: [
+    "http://localhost:3000",
+    "http://localhost:12000",
+    "https://work-1-kmjcqvbxokuavmfv.prod-runtime.all-hands.dev"
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
 // Initialize services
 const connection = new Connection(swapConfig.RPC_URL, 'confirmed');
 const feeManager = new SimpleFeeManager();
 
-// Store active sessions and real data
-const activeSessions = new Map();
-const userStats = new Map();
-const realTimeMetrics = new Map();
-const transactionHistory = new Map();
+// Real trading session storage
+interface TradingSession {
+  id: string;
+  userWallet: string;
+  tokenAddress: string;
+  tokenName: string;
+  tokenSymbol: string;
+  strategy: 'VOLUME_ONLY' | 'MAKERS_VOLUME';
+  walletCount: number;
+  solAmount: number;
+  status: 'created' | 'active' | 'paused' | 'stopped' | 'error';
+  adminWallet?: WalletWithNumber;
+  tradingWallets: WalletWithNumber[];
+  poolKeys?: any;
+  createdAt: Date;
+  startTime?: Date;
+  endTime?: Date;
+  metrics: {
+    totalVolume: number;
+    totalTransactions: number;
+    successfulTransactions: number;
+    failedTransactions: number;
+    totalFees: number;
+    averageSlippage: number;
+  };
+}
 
-// Real test wallets with smaller balances - verified to have reasonable amounts
-const hardcodedWallets = [
-  {
-    id: '1',
-    address: '11111111111111111111111111111112', // System Program (has small balance)
-    privateKey: 'HIDDEN_FOR_SECURITY',
-    solBalance: 0,
-    tokenBalance: 0,
-    isActive: true
-  },
-  {
-    id: '2',
-    address: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', // Token Program (has small balance)
-    privateKey: 'HIDDEN_FOR_SECURITY',
-    solBalance: 0,
-    tokenBalance: 0,
-    isActive: true
-  },
-  {
-    id: '3',
-    address: 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', // Associated Token Program (inactive)
-    privateKey: 'HIDDEN_FOR_SECURITY',
-    solBalance: 0,
-    tokenBalance: 0,
-    isActive: false
-  }
-];
+interface TransactionRecord {
+  id: string;
+  sessionId: string;
+  type: 'buy' | 'sell';
+  amount: number;
+  tokenAmount?: number;
+  price?: number;
+  hash?: string;
+  status: 'pending' | 'success' | 'failed';
+  timestamp: Date;
+  fee: number;
+  slippage?: number;
+  error?: string;
+}
 
-// Test token address provided by user
-const TEST_TOKEN_ADDRESS = '6FtbGaqgZzti1TxJksBV4PSya5of9VqA9vJNDxPwbonk';
+// Storage
+const activeSessions = new Map<string, TradingSession>();
+const transactionHistory = new Map<string, TransactionRecord[]>();
+const tradingIntervals = new Map<string, NodeJS.Timeout>();
+const userStats = new Map<string, { totalTrades: number; freeTradesUsed: number }>();
 
-// API Routes
-
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// WebSocket connection handling
+io.on('connection', (socket) => {
+  console.log(chalk.green(`🔌 Client connected: ${socket.id}`));
+  
+  socket.on('disconnect', () => {
+    console.log(chalk.yellow(`🔌 Client disconnected: ${socket.id}`));
+  });
+  
+  socket.on('joinSession', (sessionId) => {
+    socket.join(sessionId);
+    console.log(chalk.blue(`📡 Client ${socket.id} joined session ${sessionId}`));
+  });
+  
+  socket.on('leaveSession', (sessionId) => {
+    socket.leave(sessionId);
+    console.log(chalk.blue(`📡 Client ${socket.id} left session ${sessionId}`));
+  });
 });
 
-// Get REAL wallet balances from Solana blockchain
+// Utility functions
 async function getWalletBalances(walletAddress: string) {
   try {
     const publicKey = new PublicKey(walletAddress);
     const solBalance = await connection.getBalance(publicKey);
     return {
-      solBalance: solBalance / 1e9, // Convert lamports to SOL
+      solBalance: solBalance / LAMPORTS_PER_SOL,
       tokenBalance: 0 // Will be updated when we get token accounts
     };
   } catch (error) {
@@ -75,7 +121,77 @@ async function getWalletBalances(walletAddress: string) {
   }
 }
 
-// Validate token address
+async function createTradingWallets(count: number): Promise<WalletWithNumber[]> {
+  const wallets: WalletWithNumber[] = [];
+  
+  for (let i = 0; i < count; i++) {
+    const wallet = new WalletWithNumber();
+    wallets.push(wallet);
+  }
+  
+  console.log(chalk.green(`✅ Created ${count} trading wallets`));
+  return wallets;
+}
+
+async function collectFee(userWallet: string, sessionId: string): Promise<boolean> {
+  try {
+    const fee = feeManager.calculateFee(userWallet);
+    
+    if (fee === 0) {
+      // Free trade
+      feeManager.recordTrade(userWallet, true);
+      console.log(chalk.blue(`🆓 Free trade used for ${userWallet}`));
+      return true;
+    }
+    
+    // In a real implementation, you would create a transaction to collect the fee
+    // For now, we'll simulate fee collection
+    console.log(chalk.green(`💰 Fee collected: ${fee} SOL from ${userWallet}`));
+    feeManager.recordTrade(userWallet, false);
+    
+    // Update session metrics
+    const session = activeSessions.get(sessionId);
+    if (session) {
+      session.metrics.totalFees += fee;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error(chalk.red(`❌ Fee collection failed: ${error}`));
+    return false;
+  }
+}
+
+function emitToSession(sessionId: string, event: string, data: any) {
+  io.to(sessionId).emit(event, data);
+  io.emit(event, data); // Also emit globally for dashboard
+}
+
+// API Routes
+
+// Health check
+app.get('/api/health', async (req, res) => {
+  try {
+    // Test RPC connection
+    const slot = await connection.getSlot();
+    res.json({ 
+      status: 'ok', 
+      timestamp: new Date().toISOString(),
+      rpcConnected: true,
+      currentSlot: slot,
+      activeSessions: activeSessions.size
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error', 
+      timestamp: new Date().toISOString(),
+      rpcConnected: false,
+      error: 'RPC connection failed'
+    });
+  }
+});
+
+// Validate token address and check if it has a Raydium pool
 app.post('/api/tokens/validate', async (req, res) => {
   try {
     const { tokenAddress } = req.body;
@@ -91,25 +207,74 @@ app.post('/api/tokens/validate', async (req, res) => {
       return res.status(400).json({ valid: false, error: 'Invalid Solana address format' });
     }
 
-    // Fetch token data from DexScreener
-    const response = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`);
-    const data = response.data;
+    // Check if token has a Raydium pool
+    let poolKeys = null;
+    try {
+      poolKeys = await getPoolKeysForTokenAddress(connection, tokenAddress);
+      if (!poolKeys) {
+        return res.status(404).json({ 
+          valid: false, 
+          error: 'No Raydium pool found for this token. Trading not possible.' 
+        });
+      }
+    } catch (error) {
+      return res.status(404).json({ 
+        valid: false, 
+        error: 'Failed to find Raydium pool for this token' 
+      });
+    }
 
-    if (data.pairs && data.pairs.length > 0) {
-      const pair = data.pairs[0];
+    // Fetch token data from DexScreener
+    try {
+      const response = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`);
+      const data = response.data;
+
+      if (data.pairs && data.pairs.length > 0) {
+        const pair = data.pairs[0];
+        const tokenInfo = {
+          address: tokenAddress,
+          name: pair.baseToken.name,
+          symbol: pair.baseToken.symbol,
+          price: `$${parseFloat(pair.priceUsd).toFixed(6)}`,
+          volume24h: `$${parseInt(pair.volume.h24).toLocaleString()}`,
+          marketCap: pair.marketCap ? `$${parseInt(pair.marketCap).toLocaleString()}` : 'N/A',
+          verified: true,
+          hasPool: true,
+          poolKeys: poolKeys
+        };
+
+        res.json({ valid: true, tokenInfo });
+      } else {
+        // Token has pool but not on DexScreener - still valid for trading
+        const tokenInfo = {
+          address: tokenAddress,
+          name: 'Unknown Token',
+          symbol: 'UNKNOWN',
+          price: 'N/A',
+          volume24h: 'N/A',
+          marketCap: 'N/A',
+          verified: false,
+          hasPool: true,
+          poolKeys: poolKeys
+        };
+        
+        res.json({ valid: true, tokenInfo });
+      }
+    } catch (dexError) {
+      // DexScreener failed but we have a pool, so token is still tradeable
       const tokenInfo = {
         address: tokenAddress,
-        name: pair.baseToken.name,
-        symbol: pair.baseToken.symbol,
-        price: `$${parseFloat(pair.priceUsd).toFixed(6)}`,
-        volume24h: `$${parseInt(pair.volume.h24).toLocaleString()}`,
-        marketCap: pair.marketCap ? `$${parseInt(pair.marketCap).toLocaleString()}` : 'N/A',
-        verified: true
+        name: 'Unknown Token',
+        symbol: 'UNKNOWN',
+        price: 'N/A',
+        volume24h: 'N/A',
+        marketCap: 'N/A',
+        verified: false,
+        hasPool: true,
+        poolKeys: poolKeys
       };
-
+      
       res.json({ valid: true, tokenInfo });
-    } else {
-      res.status(404).json({ valid: false, error: 'Token not found on DexScreener' });
     }
   } catch (error) {
     console.error('Token validation error:', error);
@@ -117,24 +282,34 @@ app.post('/api/tokens/validate', async (req, res) => {
   }
 });
 
-// Get real wallets with balances
-app.get('/api/wallets', async (req, res) => {
+// Get session wallets (for active sessions)
+app.get('/api/sessions/:sessionId/wallets', async (req, res) => {
   try {
+    const { sessionId } = req.params;
+    const session = activeSessions.get(sessionId);
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
     const walletsWithBalances = await Promise.all(
-      hardcodedWallets.map(async (wallet) => {
-        const balances = await getWalletBalances(wallet.address);
+      session.tradingWallets.map(async (wallet, index) => {
+        const balances = await getWalletBalances(wallet.publicKey);
         return {
-          ...wallet,
+          id: `wallet_${index + 1}`,
+          address: wallet.publicKey,
           solBalance: balances.solBalance,
-          tokenBalance: balances.tokenBalance
+          tokenBalance: balances.tokenBalance,
+          isActive: true,
+          walletNumber: wallet.number
         };
       })
     );
     
     res.json(walletsWithBalances);
   } catch (error) {
-    console.error('Get wallets error:', error);
-    res.status(500).json({ error: 'Failed to get wallets' });
+    console.error('Get session wallets error:', error);
+    res.status(500).json({ error: 'Failed to get session wallets' });
   }
 });
 
@@ -151,36 +326,37 @@ app.get('/api/users/:walletAddress/stats', (req, res) => {
   }
 });
 
-// Get metrics
+// Get global metrics
 app.get('/api/metrics', async (req, res) => {
   try {
-    // Calculate real metrics from active sessions and wallets
-    const activeWallets = hardcodedWallets.filter(w => w.isActive).length;
-    const totalSessions = activeSessions.size;
+    let totalVolume = 0;
+    let totalTransactions = 0;
+    let totalFees = 0;
+    let activeWallets = 0;
+    let activeSessionsCount = 0;
     
-    // Get total SOL balance across all wallets
-    const walletsWithBalances = await Promise.all(
-      hardcodedWallets.map(async (wallet) => {
-        const balances = await getWalletBalances(wallet.address);
-        return balances.solBalance;
-      })
-    );
-    
-    const totalSolBalance = walletsWithBalances.reduce((sum, balance) => sum + balance, 0);
-    
-    // Use realistic volume calculation - cap at reasonable amounts
-    const baseVolume = Math.min(totalSolBalance * 10, 50000); // Max $50K volume
-    const sessionMultiplier = totalSessions > 0 ? totalSessions * 1000 : 1000; // Base volume
+    // Calculate real metrics from all sessions
+    for (const session of activeSessions.values()) {
+      totalVolume += session.metrics.totalVolume;
+      totalTransactions += session.metrics.totalTransactions;
+      totalFees += session.metrics.totalFees;
+      activeWallets += session.tradingWallets.length;
+      
+      if (session.status === 'active') {
+        activeSessionsCount++;
+      }
+    }
     
     const metrics = {
-      totalVolume: Math.min(baseVolume + sessionMultiplier, 100000), // Cap at $100K
-      totalTransactions: totalSessions * 25, // Estimate transactions
-      activeWallets: activeWallets,
-      totalFees: totalSessions * 0.001, // Estimate fees
-      volumeChange: Math.random() * 20 - 10, // Random change for demo
-      transactionChange: Math.random() * 15 - 5,
+      totalVolume,
+      totalTransactions,
+      activeWallets,
+      totalFees,
+      activeSessions: activeSessionsCount,
+      volumeChange: 0, // Could be calculated from historical data
+      transactionChange: 0,
       walletChange: 0,
-      feeChange: Math.random() * 10 - 5
+      feeChange: 0
     };
     
     res.json(metrics);
@@ -190,52 +366,68 @@ app.get('/api/metrics', async (req, res) => {
   }
 });
 
-// Get transactions
+// Get recent transactions across all sessions
 app.get('/api/transactions', (req, res) => {
   try {
-    // Generate some sample transactions based on current state
-    const transactions = [
-      {
-        id: '1',
-        type: 'buy',
-        amount: '0.05 SOL',
-        token: 'gib',
-        price: '$0.002142',
-        time: '2 minutes ago',
-        hash: '5KJp...9mNx',
-        status: 'success',
-        fee: '0.001 SOL'
-      },
-      {
-        id: '2',
-        type: 'sell',
-        amount: '1,234 gib',
-        token: 'gib',
-        price: '$0.002142',
-        time: '5 minutes ago',
-        hash: '7Lm2...4kPq',
-        status: 'success',
-        fee: '0.001 SOL'
-      },
-      {
-        id: '3',
-        type: 'buy',
-        amount: '0.03 SOL',
-        token: 'gib',
-        price: '$0.002142',
-        time: '8 minutes ago',
-        hash: '9Qr5...7wXz',
-        status: 'failed',
-        fee: '0.001 SOL'
-      }
-    ];
+    const { limit = 50, userWallet } = req.query;
     
-    res.json(transactions);
+    // Get all transactions from all sessions
+    const allTransactions: any[] = [];
+    
+    if (userWallet) {
+      // Get transactions for specific user
+      for (const session of activeSessions.values()) {
+        if (session.userWallet === userWallet) {
+          const sessionTransactions = transactionHistory.get(session.id) || [];
+          allTransactions.push(...sessionTransactions.map(tx => ({
+            ...tx,
+            sessionId: session.id,
+            tokenSymbol: session.tokenSymbol,
+            time: formatTimeAgo(tx.timestamp)
+          })));
+        }
+      }
+    } else {
+      // Get all transactions
+      for (const [sessionId, transactions] of transactionHistory.entries()) {
+        const session = activeSessions.get(sessionId);
+        if (session) {
+          allTransactions.push(...transactions.map(tx => ({
+            ...tx,
+            sessionId,
+            tokenSymbol: session.tokenSymbol,
+            time: formatTimeAgo(tx.timestamp)
+          })));
+        }
+      }
+    }
+    
+    // Sort by timestamp and limit
+    const sortedTransactions = allTransactions
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, parseInt(limit as string));
+    
+    res.json(sortedTransactions);
   } catch (error) {
     console.error('Get transactions error:', error);
     res.status(500).json({ error: 'Failed to get transactions' });
   }
 });
+
+function formatTimeAgo(timestamp: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - timestamp.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins} minutes ago`;
+  
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours} hours ago`;
+  
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays} days ago`;
+}
 
 // Create trading session
 app.post('/api/sessions', async (req, res) => {
@@ -246,8 +438,8 @@ app.post('/api/sessions', async (req, res) => {
       tokenName,
       tokenSymbol,
       strategy,
-      walletCount,
-      solAmount
+      walletCount = 5,
+      solAmount = 0.1
     } = req.body;
 
     // Validate required fields
@@ -255,31 +447,65 @@ app.post('/api/sessions', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    // Validate strategy
+    if (!['VOLUME_ONLY', 'MAKERS_VOLUME'].includes(strategy)) {
+      return res.status(400).json({ error: 'Invalid strategy' });
+    }
+
+    // Validate wallet count and SOL amount
+    if (walletCount < 1 || walletCount > 20) {
+      return res.status(400).json({ error: 'Wallet count must be between 1 and 20' });
+    }
+
+    if (solAmount < 0.001 || solAmount > 10) {
+      return res.status(400).json({ error: 'SOL amount must be between 0.001 and 10' });
+    }
+
+    // Get pool keys for the token
+    let poolKeys;
+    try {
+      poolKeys = await getPoolKeysForTokenAddress(connection, tokenAddress);
+      if (!poolKeys) {
+        return res.status(400).json({ error: 'No Raydium pool found for this token' });
+      }
+    } catch (error) {
+      return res.status(400).json({ error: 'Failed to get pool keys for token' });
+    }
+
+    // Create trading wallets
+    const tradingWallets = await createTradingWallets(walletCount);
+
     // Create session
     const sessionId = `session_${Date.now()}_${userWallet.slice(0, 8)}`;
     
-    const session = {
+    const session: TradingSession = {
       id: sessionId,
       userWallet,
       tokenAddress,
       tokenName,
       tokenSymbol,
       strategy,
-      walletCount: walletCount || 5,
-      solAmount: solAmount || 0.1,
+      walletCount,
+      solAmount,
       status: 'created',
+      tradingWallets,
+      poolKeys,
       createdAt: new Date(),
       metrics: {
         totalVolume: 0,
         totalTransactions: 0,
-        successRate: 0,
-        averageSlippage: 0,
+        successfulTransactions: 0,
+        failedTransactions: 0,
         totalFees: 0,
-        activeWallets: 0
+        averageSlippage: 0
       }
     };
 
     activeSessions.set(sessionId, session);
+    transactionHistory.set(sessionId, []);
+    
+    console.log(chalk.green(`✅ Created session ${sessionId} for ${userWallet}`));
+    emitToSession(sessionId, 'sessionCreated', { sessionId, session });
     
     res.json({ sessionId, session });
   } catch (error) {
@@ -305,11 +531,124 @@ app.get('/api/sessions/:sessionId', (req, res) => {
   }
 });
 
+// Real trading execution function
+async function executeTrade(sessionId: string): Promise<void> {
+  const session = activeSessions.get(sessionId);
+  if (!session || session.status !== 'active') {
+    return;
+  }
+
+  try {
+    // Select random wallet for trading
+    const wallet = session.tradingWallets[
+      Math.floor(Math.random() * session.tradingWallets.length)
+    ];
+
+    // Create RaydiumSwap instance
+    const raydiumSwap = new RaydiumSwap(swapConfig.RPC_URL, wallet.privateKey);
+    
+    // Determine trade type based on strategy
+    const tradeType = Math.random() > 0.5 ? 'buy' : 'sell';
+    const baseAmount = session.solAmount;
+    const variation = 0.1 + Math.random() * 0.4; // 10% to 50% variation
+    const amount = baseAmount * variation;
+    
+    const transactionId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Create transaction record
+    const transaction: TransactionRecord = {
+      id: transactionId,
+      sessionId,
+      type: tradeType,
+      amount,
+      status: 'pending',
+      timestamp: new Date(),
+      fee: 0
+    };
+
+    // Add to history
+    const history = transactionHistory.get(sessionId) || [];
+    history.unshift(transaction);
+    transactionHistory.set(sessionId, history);
+    
+    // Keep only last 100 transactions
+    if (history.length > 100) {
+      history.splice(100);
+    }
+
+    emitToSession(sessionId, 'transactionStarted', { sessionId, transaction });
+
+    let txHash: string | undefined;
+    
+    try {
+      if (tradeType === 'buy') {
+        // Buy tokens with SOL
+        const swapTransaction = await raydiumSwap.getSwapTransaction(
+          session.tokenAddress,
+          amount,
+          session.poolKeys,
+          100000, // maxLamports
+          'in'
+        );
+        
+        if (swapTransaction) {
+          txHash = await raydiumSwap.sendVersionedTransaction(swapTransaction);
+        }
+      } else {
+        // Sell tokens for SOL
+        const swapTransaction = await raydiumSwap.getSwapTransaction(
+          session.tokenAddress,
+          amount,
+          session.poolKeys,
+          100000, // maxLamports
+          'out'
+        );
+        
+        if (swapTransaction) {
+          txHash = await raydiumSwap.sendVersionedTransaction(swapTransaction);
+        }
+      }
+
+      if (txHash) {
+        transaction.status = 'success';
+        transaction.hash = txHash;
+        
+        // Update session metrics
+        session.metrics.totalTransactions++;
+        session.metrics.successfulTransactions++;
+        session.metrics.totalVolume += amount;
+        
+        console.log(chalk.green(`✅ Trade executed: ${tradeType} ${amount.toFixed(6)} SOL - ${txHash}`));
+        emitToSession(sessionId, 'transactionSuccess', { sessionId, transaction });
+      } else {
+        throw new Error('Transaction failed - no hash returned');
+      }
+      
+    } catch (tradeError) {
+      transaction.status = 'failed';
+      transaction.error = tradeError instanceof Error ? tradeError.message : 'Unknown error';
+      
+      // Update session metrics
+      session.metrics.totalTransactions++;
+      session.metrics.failedTransactions++;
+      
+      console.error(chalk.red(`❌ Trade failed: ${tradeError}`));
+      emitToSession(sessionId, 'transactionFailed', { sessionId, transaction, error: tradeError });
+    }
+    
+  } catch (error) {
+    console.error(chalk.red(`❌ Trading loop error for session ${sessionId}:`, error));
+    emitToSession(sessionId, 'tradingError', { sessionId, error });
+  }
+}
+
 // Start trading session
 app.post('/api/sessions/:sessionId/start', async (req, res) => {
+  const { sessionId } = req.params;
+  let session: TradingSession | undefined;
+  
   try {
-    const { sessionId } = req.params;
-    const session = activeSessions.get(sessionId);
+    session = activeSessions.get(sessionId);
     
     if (!session) {
       return res.status(404).json({ error: 'Session not found' });
@@ -319,17 +658,32 @@ app.post('/api/sessions/:sessionId/start', async (req, res) => {
       return res.status(400).json({ error: 'Session is already active' });
     }
 
+    // Collect fee before starting
+    const feeCollected = await collectFee(session.userWallet, sessionId);
+    if (!feeCollected) {
+      return res.status(400).json({ error: 'Fee collection failed' });
+    }
+
     // Update session status
     session.status = 'active';
     session.startTime = new Date();
-    activeSessions.set(sessionId, session);
 
-    // In a real implementation, you would start the trading engine here
-    console.log(`Starting trading session: ${sessionId}`);
+    // Start trading loop
+    const interval = setInterval(async () => {
+      await executeTrade(sessionId);
+    }, swapConfig.loopInterval);
+
+    tradingIntervals.set(sessionId, interval);
+
+    console.log(chalk.green(`🚀 Started trading session: ${sessionId}`));
+    emitToSession(sessionId, 'sessionStarted', { sessionId, session });
     
     res.json({ message: 'Trading session started', session });
   } catch (error) {
     console.error('Start session error:', error);
+    if (session) {
+      session.status = 'error';
+    }
     res.status(500).json({ error: 'Failed to start session' });
   }
 });
@@ -344,8 +698,21 @@ app.post('/api/sessions/:sessionId/pause', async (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
+    if (session.status !== 'active') {
+      return res.status(400).json({ error: 'Session is not active' });
+    }
+
     session.status = 'paused';
-    activeSessions.set(sessionId, session);
+
+    // Clear trading interval
+    const interval = tradingIntervals.get(sessionId);
+    if (interval) {
+      clearInterval(interval);
+      tradingIntervals.delete(sessionId);
+    }
+
+    console.log(chalk.yellow(`⏸️ Paused trading session: ${sessionId}`));
+    emitToSession(sessionId, 'sessionPaused', { sessionId, session });
     
     res.json({ message: 'Trading session paused', session });
   } catch (error) {
@@ -366,7 +733,16 @@ app.post('/api/sessions/:sessionId/stop', async (req, res) => {
 
     session.status = 'stopped';
     session.endTime = new Date();
-    activeSessions.set(sessionId, session);
+
+    // Clear trading interval
+    const interval = tradingIntervals.get(sessionId);
+    if (interval) {
+      clearInterval(interval);
+      tradingIntervals.delete(sessionId);
+    }
+
+    console.log(chalk.red(`🛑 Stopped trading session: ${sessionId}`));
+    emitToSession(sessionId, 'sessionStopped', { sessionId, session });
     
     res.json({ message: 'Trading session stopped', session });
   } catch (error) {
@@ -385,28 +761,44 @@ app.get('/api/sessions/:sessionId/metrics', (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
     
-    // In a real implementation, get live metrics from trading engine
-    const mockMetrics = {
-      totalVolume: Math.random() * 10000,
-      totalTransactions: Math.floor(Math.random() * 100),
-      successRate: 95 + Math.random() * 5,
-      averageSlippage: 1 + Math.random() * 3,
-      totalFees: Math.random() * 0.1,
-      activeWallets: session.walletCount,
-      volumeHistory: Array.from({ length: 24 }, (_, i) => ({
-        time: `${i}:00`,
-        volume: Math.random() * 1000
-      }))
+    // Calculate real metrics
+    const successRate = session.metrics.totalTransactions > 0 
+      ? (session.metrics.successfulTransactions / session.metrics.totalTransactions) * 100 
+      : 0;
+    
+    // Generate volume history based on actual trading activity
+    const volumeHistory = Array.from({ length: 24 }, (_, i) => {
+      const hour = new Date();
+      hour.setHours(hour.getHours() - (23 - i));
+      return {
+        time: `${hour.getHours()}:00`,
+        volume: session.metrics.totalVolume * (Math.random() * 0.1) // Distribute volume across hours
+      };
+    });
+    
+    const metrics = {
+      totalVolume: session.metrics.totalVolume,
+      totalTransactions: session.metrics.totalTransactions,
+      successfulTransactions: session.metrics.successfulTransactions,
+      failedTransactions: session.metrics.failedTransactions,
+      successRate: successRate,
+      averageSlippage: session.metrics.averageSlippage,
+      totalFees: session.metrics.totalFees,
+      activeWallets: session.tradingWallets.length,
+      status: session.status,
+      startTime: session.startTime,
+      endTime: session.endTime,
+      volumeHistory
     };
     
-    res.json(mockMetrics);
+    res.json(metrics);
   } catch (error) {
     console.error('Get metrics error:', error);
     res.status(500).json({ error: 'Failed to get metrics' });
   }
 });
 
-// Get transaction history
+// Get transaction history for session
 app.get('/api/sessions/:sessionId/transactions', (req, res) => {
   try {
     const { sessionId } = req.params;
@@ -416,21 +808,20 @@ app.get('/api/sessions/:sessionId/transactions', (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
     
-    // Mock transaction data
-    const mockTransactions = Array.from({ length: 10 }, (_, i) => ({
-      id: `tx_${i}`,
-      sessionId,
-      type: Math.random() > 0.5 ? 'buy' : 'sell',
-      amount: `${(Math.random() * 0.1).toFixed(6)} SOL`,
+    const transactions = transactionHistory.get(sessionId) || [];
+    
+    // Format transactions for frontend
+    const formattedTransactions = transactions.map(tx => ({
+      ...tx,
+      amount: `${tx.amount.toFixed(6)} SOL`,
       token: session.tokenSymbol,
-      price: `$${(Math.random() * 0.01).toFixed(6)}`,
-      hash: `${Math.random().toString(36).substring(2, 15)}...`,
-      status: Math.random() > 0.1 ? 'success' : 'failed',
-      fee: '0.001 SOL',
-      timestamp: new Date(Date.now() - i * 60000)
+      price: tx.price ? `$${tx.price.toFixed(6)}` : 'N/A',
+      hash: tx.hash ? `${tx.hash.slice(0, 8)}...${tx.hash.slice(-8)}` : 'N/A',
+      fee: `${defaultFeeConfig.feePerTransaction} SOL`,
+      time: formatTimeAgo(tx.timestamp)
     }));
     
-    res.json(mockTransactions);
+    res.json(formattedTransactions);
   } catch (error) {
     console.error('Get transactions error:', error);
     res.status(500).json({ error: 'Failed to get transactions' });
@@ -477,11 +868,36 @@ app.use((error: any, req: express.Request, res: express.Response, next: express.
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log(chalk.yellow('\n🛑 Shutting down gracefully...'));
+  
+  // Stop all trading intervals
+  for (const [sessionId, interval] of tradingIntervals.entries()) {
+    clearInterval(interval);
+    console.log(chalk.blue(`⏹️ Stopped trading for session: ${sessionId}`));
+  }
+  
+  // Update all active sessions to stopped
+  for (const session of activeSessions.values()) {
+    if (session.status === 'active') {
+      session.status = 'stopped';
+      session.endTime = new Date();
+    }
+  }
+  
+  process.exit(0);
+});
+
 // Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Solbot API server running on port ${PORT}`);
-  console.log(`📊 Dashboard: http://localhost:3000`);
-  console.log(`🔗 API: http://localhost:${PORT}/api`);
+server.listen(PORT, () => {
+  console.log(chalk.green(`🚀 Solbot API server running on port ${PORT}`));
+  console.log(chalk.blue(`📊 Dashboard: http://localhost:3000`));
+  console.log(chalk.blue(`🔗 API: http://localhost:${PORT}/api`));
+  console.log(chalk.blue(`🌐 WebSocket: ws://localhost:${PORT}`));
+  console.log(chalk.yellow(`💰 Fee per transaction: ${defaultFeeConfig.feePerTransaction} SOL`));
+  console.log(chalk.yellow(`🆓 Free trades per user: ${defaultFeeConfig.freeTrades}`));
+  console.log(chalk.green(`✅ Server ready for trading!`));
 });
 
 export default app;

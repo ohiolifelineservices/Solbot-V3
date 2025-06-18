@@ -1,5 +1,6 @@
 export const swapConfig = {
-  RPC_URL: "https://shy-yolo-theorem.solana-mainnet.quiknode.pro/1796bb57c2fdd2a536ae9f46f2d0fd57a9f27bc3/",
+  RPC_URL: process.env.RPC_URL || "https://shy-yolo-theorem.solana-mainnet.quiknode.pro/1796bb57c2fdd2a536ae9f46f2d0fd57a9f27bc3/",
+  WSS_URL: process.env.WSS_URL || "wss://shy-yolo-theorem.solana-mainnet.quiknode.pro/1796bb57c2fdd2a536ae9f46f2d0fd57a9f27bc3/",
   
   // Addresses
   WSOL_ADDRESS: "So11111111111111111111111111111111111111112", // WSOL address
