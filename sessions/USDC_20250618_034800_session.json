@@ -1,0 +1,52 @@
+{
+  "admin": {
+    "number": 0,
+    "address": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+    "privateKey": "5J7XKtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU1234567890abcdef1234567890abcdef1234567890abcdef"
+  },
+  "wallets": [
+    {
+      "number": 1,
+      "address": "8yLXuh3DX98e08YKTEqcE6kCifeTrB94UASvKpqthBtV",
+      "privateKey": "6K8YLuh3DX98e08YKTEqcE6kCifeTrB94UASvKpqthBtV2345678901bcdefg2345678901bcdefg2345678901bcdefg",
+      "generationTimestamp": "2025-06-18T03:30:00.000Z"
+    },
+    {
+      "number": 2,
+      "address": "9zMYvi4EY09f19ZLFRfrF7lDjgfUcC95VBTwLrqruCuW",
+      "privateKey": "7L9ZMvi4EY09f19ZLFRfrF7lDjgfUcC95VBTwLrqruCuW3456789012cdefgh3456789012cdefgh3456789012cdefgh",
+      "generationTimestamp": "2025-06-18T03:30:05.000Z"
+    }
+  ],
+  "tokenAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  "poolKeys": {
+    "id": "58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2",
+    "baseMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "quoteMint": "So11111111111111111111111111111111111111112",
+    "lpMint": "8HoQnePLqPj4M7PUDzfw8e3Ymdwgc7NLGnaTUapubyvu",
+    "baseDecimals": 6,
+    "quoteDecimals": 9,
+    "lpDecimals": 6,
+    "version": 4,
+    "programId": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+    "authority": "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",
+    "openOrders": "HRk9CMrpq7Jn9sh7mzxE8CChHG2dGZjkre4dgHPvsh4z",
+    "targetOrders": "CZza3Ej4Mc58MnxWA385itCC9jCo3L1D7zc3LKy1bZMR",
+    "baseVault": "DQyrAcCrDXQ7NeoqGgDCZwBvWDcYmFCjSb9JtteuvPpz",
+    "quoteVault": "HLmqeL62xR1QoZ1HKKbXRrdN1p3phKpxRMb2VVopvBBz",
+    "withdrawQueue": "G7xeGGLevkRwB5f44QNgQtrPKBdMfkT6ZZwpS9xcC97n",
+    "lpVault": "Awpt6N7ZYPBa4vG4BQNFhFxDj5W8EyChQcn5rDPEvHgz",
+    "marketVersion": 3,
+    "marketProgramId": "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+    "marketId": "9wFFyRfZBsuAha4YcuxcXLKwMxJR43S7fPfQLusDBzvT",
+    "marketAuthority": "F8Vyqk3unwxkXukZFQeYyGmFfTG3CAX4v24iyrjEYBJV",
+    "marketBaseVault": "36c6YqAwyGKQG66XEp2dJc5JqjaBNv7sVghEtJv4c7u6",
+    "marketQuoteVault": "8CFo8bL8mZQK8abbFyypFMwEDd8tVJjHTTojMLgQTUSZ",
+    "marketBids": "5jWUncPNBMZJ3sTHKmMLszypVkoRK6bfEQMQUHweeQnh",
+    "marketAsks": "EaXdHx7x3mdGA38j5RSmKYSXMzAFzzUXCLNBEDXDn1d5",
+    "marketEventQueue": "8CvwxZ9Db6XbLD46NZwwmVDZZRDy7eydFcAGkXKh9axa",
+    "lookupTableAccount": "2immgwYNHBbyVQKVGCEkgWpi53bLwWNRMB5G2nbgYV17"
+  },
+  "tokenName": "USDC",
+  "timestamp": "2025-06-18T03:48:00.000Z"
+}

@@ -24,7 +24,7 @@ export function TransactionHistory() {
   useEffect(() => {
     const fetchTransactions = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/transactions')
+        const response = await fetch('http://localhost:12001/api/transactions')
         if (response.ok) {
           const data = await response.json()
           setTransactions(data)

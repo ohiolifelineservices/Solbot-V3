@@ -22,7 +22,7 @@ export function MetricsCards() {
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/metrics')
+        const response = await fetch('http://localhost:12001/api/metrics')
         if (response.ok) {
           const data = await response.json()
           setMetricsData(data)
@@ -112,7 +112,7 @@ export function MetricsCards() {
   ]
 
   const getColorClasses = (color: string) => {
-    const colors = {
+    const colors: Record<string, string> = {
       blue: 'from-blue-500 to-blue-600',
       green: 'from-green-500 to-green-600',
       purple: 'from-purple-500 to-purple-600',

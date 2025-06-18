@@ -1,7 +1,7 @@
 'use client'
 
+import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { 
   TrendingUp, 
   Zap, 
@@ -10,10 +10,26 @@ import {
   Wallet, 
   ArrowRight,
   CheckCircle,
-  DollarSign
+  DollarSign,
+  Upload,
+  Plus
 } from 'lucide-react'
+import { WalletCreator } from './WalletCreator'
+import { WalletData } from '@/types'
+import { useRouter } from 'next/navigation'
 
 export function LandingPage() {
+  const [showWalletCreator, setShowWalletCreator] = useState(false)
+  const router = useRouter()
+
+  const handleWalletCreated = (wallet: WalletData) => {
+    // Store wallet info in localStorage for the dashboard
+    localStorage.setItem('currentWallet', JSON.stringify(wallet))
+    setShowWalletCreator(false)
+    // Navigate to dashboard
+    router.push('/dashboard')
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900">
       {/* Header */}
@@ -34,7 +50,13 @@ export function LandingPage() {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
           >
-            <WalletMultiButton className="!bg-gradient-to-r !from-blue-600 !to-purple-600 hover:!from-blue-700 hover:!to-purple-700 !border-none !rounded-lg !font-semibold !transition-all !duration-200" />
+            <button
+              onClick={() => setShowWalletCreator(true)}
+              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 border-none rounded-lg font-semibold px-6 py-2 text-white transition-all duration-200 flex items-center gap-2"
+            >
+              <Wallet className="w-4 h-4" />
+              Start Trading
+            </button>
           </motion.div>
         </nav>
       </header>
@@ -69,11 +91,19 @@ export function LandingPage() {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.6 }}
-              className="flex flex-col sm:flex-row items-center justify-center gap-4"
+              className="flex flex-col items-center justify-center gap-6"
             >
-              <WalletMultiButton className="!bg-gradient-to-r !from-blue-600 !to-purple-600 hover:!from-blue-700 hover:!to-purple-700 !border-none !rounded-lg !font-semibold !px-8 !py-4 !text-lg !transition-all !duration-200" />
-              <div className="flex items-center text-green-400 font-semibold">
-                <CheckCircle className="w-5 h-5 mr-2" />
+              <button
+                onClick={() => setShowWalletCreator(true)}
+                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 border-none rounded-lg font-semibold px-12 py-4 text-xl text-white transition-all duration-200 flex items-center gap-3 shadow-lg hover:shadow-xl transform hover:scale-105"
+              >
+                <Wallet className="w-6 h-6" />
+                Start Trading Now
+                <ArrowRight className="w-5 h-5" />
+              </button>
+              
+              <div className="flex items-center text-green-400 font-semibold text-lg">
+                <CheckCircle className="w-6 h-6 mr-2" />
                 10 Free Trades to Start
               </div>
             </motion.div>
@@ -143,7 +173,13 @@ export function LandingPage() {
                 </div>
               </div>
               
-              <WalletMultiButton className="!bg-gradient-to-r !from-blue-600 !to-purple-600 hover:!from-blue-700 hover:!to-purple-700 !border-none !rounded-lg !font-semibold !px-8 !py-3 !transition-all !duration-200" />
+              <button
+                onClick={() => setShowWalletCreator(true)}
+                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 border-none rounded-lg font-semibold px-8 py-3 text-white transition-all duration-200 flex items-center gap-2 mx-auto"
+              >
+                <Wallet className="w-5 h-5" />
+                Get Started
+              </button>
             </div>
           </motion.div>
         </div>
@@ -154,6 +190,14 @@ export function LandingPage() {
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse-slow"></div>
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-blue-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse-slow"></div>
       </div>
+
+      {/* Wallet Creator Modal */}
+      {showWalletCreator && (
+        <WalletCreator 
+          onClose={() => setShowWalletCreator(false)}
+          onWalletCreated={handleWalletCreated}
+        />
+      )}
     </div>
   )
 }

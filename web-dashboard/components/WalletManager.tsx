@@ -4,13 +4,14 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Plus, Trash2, RefreshCw, Send, Eye, EyeOff, Copy } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { WalletData } from '@/types'
 
 interface WalletManagerProps {
   sessionId: string | null
 }
 
 export function WalletManager({ sessionId }: WalletManagerProps) {
-  const [wallets, setWallets] = useState([])
+  const [wallets, setWallets] = useState<WalletData[]>([])
   const [loading, setLoading] = useState(true)
 
   const [isCreating, setIsCreating] = useState(false)
@@ -29,7 +30,7 @@ export function WalletManager({ sessionId }: WalletManagerProps) {
     }
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
       const response = await fetch(`${apiUrl}/api/sessions/${sessionId}/wallets`)
       
       if (!response.ok) {
@@ -38,7 +39,7 @@ export function WalletManager({ sessionId }: WalletManagerProps) {
       
       const data = await response.json()
       
-      setWallets(data.map(wallet => ({
+      setWallets(data.map((wallet: any) => ({
         ...wallet,
         privateKeyVisible: false
       })))
@@ -57,7 +58,7 @@ export function WalletManager({ sessionId }: WalletManagerProps) {
       return
     }
     
-    toast.info('Wallets are automatically created when you start a trading session')
+    toast('Wallets are automatically created when you start a trading session', { icon: 'ℹ️' })
   }
 
   const deleteWallet = (id: string) => {
