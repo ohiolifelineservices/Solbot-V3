@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { io, Socket } from 'socket.io-client'
+import { API_CONFIG } from '../lib/api'
 
 interface UseWebSocketProps {
   url?: string
@@ -33,7 +34,7 @@ export function useWebSocket({
   const socketRef = useRef<Socket | null>(null)
 
   useEffect(() => {
-    const apiUrl = url || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
+    const apiUrl = url || API_CONFIG.BASE_URL
     
     // Initialize socket connection
     socketRef.current = io(apiUrl, {

@@ -20,6 +20,7 @@ import {
   EyeOff
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { api } from '../lib/api'
 
 interface BackendFlowTradingControlsProps {
   isTrading: boolean
@@ -27,6 +28,7 @@ interface BackendFlowTradingControlsProps {
   onSessionChange: (sessionId: string) => void
   currentWallet?: any
   sessionData?: any
+  onWalletCreated?: (wallet: any) => void
 }
 
 interface TradingConfig {
@@ -57,7 +59,8 @@ export function BackendFlowTradingControls({
   onTradingChange, 
   onSessionChange,
   currentWallet,
-  sessionData 
+  sessionData,
+  onWalletCreated
 }: BackendFlowTradingControlsProps) {
   const [currentStep, setCurrentStep] = useState(1)
   const [tokenAddress, setTokenAddress] = useState('')
@@ -148,27 +151,19 @@ export function BackendFlowTradingControls({
 
     setIsValidating(true)
     try {
-      const response = await fetch('https://work-2-uxwtyonxjkkirrey.prod-runtime.all-hands.dev/api/tokens/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          tokenAddress: tokenAddress.trim(),
-          fetchPoolKeys: true 
-        })
-      })
-
-      const data = await response.json()
+      // Call with fetchPoolKeys=true to match backend flow
+      const data = await api.validateToken(tokenAddress.trim(), true)
       
       if (data.valid && data.tokenInfo) {
         setTokenInfo(data.tokenInfo)
-        setPoolKeys(data.poolKeys)
+        setPoolKeys(data.poolKeys) // Pool keys returned separately from backend
         toast.success(`Token validated: ${data.tokenInfo.name} (${data.tokenInfo.symbol})`)
-        setCurrentStep(2)
+        setCurrentStep(2) // Move to Admin Wallet step
       } else {
         toast.error(data.error || 'Token validation failed')
       }
     } catch (error) {
-      toast.error('Network error during token validation')
+      toast.error(`Token validation failed: ${error.message}`)
       console.error('Token validation error:', error)
     } finally {
       setIsValidating(false)
@@ -178,56 +173,60 @@ export function BackendFlowTradingControls({
   // Step 2: Admin Wallet Setup
   const createAdminWallet = async () => {
     try {
-      const response = await fetch('https://work-2-uxwtyonxjkkirrey.prod-runtime.all-hands.dev/api/wallets/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'generate' })
-      })
-
-      const data = await response.json()
+      const data = await api.createWallet('generate')
       
       if (data.success && data.publicKey) {
         const wallet = {
           address: data.publicKey,
+          publicKey: data.publicKey,
           privateKey: data.privateKey,
-          balance: 0
+          balance: 0,
+          fromBackendFlow: true
         }
         setAdminWallet(wallet)
+        
+        // Notify parent component about wallet creation
+        if (onWalletCreated) {
+          onWalletCreated(wallet)
+        }
+        
         toast.success('Admin wallet created successfully')
         setCurrentStep(3)
       } else {
         toast.error(data.error || 'Failed to create admin wallet')
       }
     } catch (error) {
-      toast.error('Network error creating admin wallet')
+      toast.error(`Failed to create admin wallet: ${error.message}`)
       console.error('Admin wallet creation error:', error)
     }
   }
 
   const importAdminWallet = async (privateKey: string) => {
     try {
-      const response = await fetch('https://work-2-uxwtyonxjkkirrey.prod-runtime.all-hands.dev/api/wallets/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'import', privateKey })
-      })
-
-      const data = await response.json()
+      const data = await api.createWallet('import', privateKey)
       
       if (data.success && data.publicKey) {
         const wallet = {
           address: data.publicKey,
+          publicKey: data.publicKey,
           privateKey: privateKey,
-          balance: 0
+          balance: 0,
+          fromBackendFlow: true
         }
         setAdminWallet(wallet)
+        
+        // Notify parent component about wallet creation
+        if (onWalletCreated) {
+          onWalletCreated(wallet)
+        }
+        
         toast.success('Admin wallet imported successfully')
         setCurrentStep(3)
       } else {
         toast.error(data.error || 'Failed to import admin wallet')
       }
     } catch (error) {
-      toast.error('Network error importing admin wallet')
+      toast.error(`Failed to import admin wallet: ${error.message}`)
       console.error('Admin wallet import error:', error)
     }
   }
@@ -236,13 +235,7 @@ export function BackendFlowTradingControls({
   const generateTradingWallets = async () => {
     setIsCreatingWallets(true)
     try {
-      const response = await fetch('https://work-2-uxwtyonxjkkirrey.prod-runtime.all-hands.dev/api/wallets/create-multiple', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: config.walletCount })
-      })
-
-      const data = await response.json()
+      const data = await api.createMultipleWallets(config.walletCount)
       
       if (Array.isArray(data) && data.length > 0) {
         setTradingWallets(data)
@@ -252,7 +245,7 @@ export function BackendFlowTradingControls({
         toast.error('Failed to create trading wallets')
       }
     } catch (error) {
-      toast.error('Network error creating trading wallets')
+      toast.error(`Failed to create trading wallets: ${error.message}`)
       console.error('Trading wallets creation error:', error)
     } finally {
       setIsCreatingWallets(false)
@@ -286,16 +279,10 @@ export function BackendFlowTradingControls({
         timestamp
       }
 
-      const response = await fetch('https://work-2-uxwtyonxjkkirrey.prod-runtime.all-hands.dev/api/sessions/create-file', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionData,
-          tokenName: tokenInfo.name
-        })
+      const result = await api.createSessionFile({
+        sessionData,
+        tokenName: tokenInfo.name
       })
-
-      const result = await response.json()
       
       if (result.success) {
         console.log('Session file created:', result.filename)
@@ -322,17 +309,11 @@ export function BackendFlowTradingControls({
       const totalAmount = config.solAmount * config.walletCount
       const walletAddresses = tradingWallets.map(w => w.address)
 
-      const response = await fetch('https://work-2-uxwtyonxjkkirrey.prod-runtime.all-hands.dev/api/wallets/distribute-sol', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fromWallet: adminWallet,
-          toWallets: walletAddresses,
-          totalAmount
-        })
+      const data = await api.distributeSol({
+        fromWallet: adminWallet,
+        toWallets: walletAddresses,
+        totalAmount
       })
-
-      const data = await response.json()
       
       if (data.successCount > 0) {
         toast.success(`Distributed SOL to ${data.successCount}/${data.totalWallets} wallets`)
