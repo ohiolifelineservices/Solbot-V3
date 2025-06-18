@@ -30,27 +30,39 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange, c
     
     setIsValidating(true)
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
-      const response = await fetch(`${apiUrl}/api/tokens/validate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ tokenAddress }),
-      })
+      // Call DexScreener API directly
+      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`)
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch token data')
+      }
       
       const data = await response.json()
       
-      if (data.valid && data.tokenInfo) {
-        setTokenInfo(data.tokenInfo)
-        toast.success('Token validated successfully!')
+      if (data.pairs && data.pairs.length > 0) {
+        const pair = data.pairs[0]
+        const tokenInfo = {
+          address: tokenAddress,
+          name: pair.baseToken.name,
+          symbol: pair.baseToken.symbol,
+          price: parseFloat(pair.priceUsd || '0'),
+          marketCap: pair.marketCap || 0,
+          liquidity: pair.liquidity?.usd || 0,
+          volume24h: pair.volume?.h24 || 0,
+          priceChange24h: pair.priceChange?.h24 || 0,
+          dexId: pair.dexId,
+          pairAddress: pair.pairAddress
+        }
+        
+        setTokenInfo(tokenInfo)
+        toast.success(`Token validated: ${tokenInfo.name} (${tokenInfo.symbol})`)
       } else {
-        toast.error(data.error || 'Invalid token address')
+        toast.error('Token not found or no trading pairs available')
         setTokenInfo(null)
       }
     } catch (error) {
       console.error('Token validation error:', error)
-      toast.error('Failed to validate token')
+      toast.error('Failed to validate token - please check the address')
       setTokenInfo(null)
     } finally {
       setIsValidating(false)
