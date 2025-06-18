@@ -351,34 +351,27 @@ export function BackendFlowTradingControls({
     }
 
     try {
-      // Create advanced session
-      const response = await fetch('https://work-2-uxwtyonxjkkirrey.prod-runtime.all-hands.dev/api/sessions/advanced', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userWallet: adminWallet.address,
-          adminWallet,
-          tokenAddress,
-          tokenInfo,
-          poolKeys,
-          config,
-          timestamp: new Date().toISOString()
-        })
-      })
+      // Create session using the standard API
+      const sessionData = {
+        userWallet: adminWallet.address,
+        tokenAddress,
+        tokenName: tokenInfo.name,
+        tokenSymbol: tokenInfo.symbol,
+        strategy: config.strategy,
+        walletCount: config.walletCount,
+        solAmount: config.solAmount
+      }
 
-      const data = await response.json()
+      const data = await api.createSession(sessionData)
       
       if (data.sessionId) {
         setSessionId(data.sessionId)
         onSessionChange(data.sessionId)
         
         // Start the trading session
-        const startResponse = await fetch(`https://work-2-uxwtyonxjkkirrey.prod-runtime.all-hands.dev/api/sessions/${data.sessionId}/start`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        })
-
-        if (startResponse.ok) {
+        const startResult = await api.startSession(data.sessionId)
+        
+        if (startResult.message) {
           onTradingChange(true)
           toast.success('Trading started successfully!')
         } else {
@@ -388,7 +381,7 @@ export function BackendFlowTradingControls({
         toast.error('Failed to create trading session')
       }
     } catch (error) {
-      toast.error('Network error starting trading')
+      toast.error(`Failed to start trading: ${error.message}`)
       console.error('Trading start error:', error)
     }
   }

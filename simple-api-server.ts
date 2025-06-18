@@ -31,8 +31,10 @@ app.use(cors({
   origin: [
     "http://localhost:3000",
     "http://localhost:12000",
-    "https://work-1-pucqbuzkhwhogfjo.prod-runtime.all-hands.dev",
-    "https://work-2-pucqbuzkhwhogfjo.prod-runtime.all-hands.dev"
+    "https://work-1-aelzbjdwepigpywc.prod-runtime.all-hands.dev",
+    "https://work-2-aelzbjdwepigpywc.prod-runtime.all-hands.dev",
+    // Allow any origin in development
+    /^https:\/\/work-\d+-[a-z0-9]+\.prod-runtime\.all-hands\.dev$/
   ],
   credentials: true
 }));
@@ -243,11 +245,10 @@ app.post('/api/tokens/validate', async (req, res) => {
           volume24h: `$${parseInt(pair.volume.h24).toLocaleString()}`,
           marketCap: pair.marketCap ? `$${parseInt(pair.marketCap).toLocaleString()}` : 'N/A',
           verified: true,
-          hasPool: true,
-          poolKeys: poolKeys
+          hasPool: true
         };
 
-        res.json({ valid: true, tokenInfo });
+        res.json({ valid: true, tokenInfo, poolKeys });
       } else {
         // Token has pool but not on DexScreener - still valid for trading
         const tokenInfo = {
@@ -258,11 +259,10 @@ app.post('/api/tokens/validate', async (req, res) => {
           volume24h: 'N/A',
           marketCap: 'N/A',
           verified: false,
-          hasPool: true,
-          poolKeys: poolKeys
+          hasPool: true
         };
         
-        res.json({ valid: true, tokenInfo });
+        res.json({ valid: true, tokenInfo, poolKeys });
       }
     } catch (dexError) {
       // DexScreener failed but we have a pool, so token is still tradeable
@@ -274,11 +274,10 @@ app.post('/api/tokens/validate', async (req, res) => {
         volume24h: 'N/A',
         marketCap: 'N/A',
         verified: false,
-        hasPool: true,
-        poolKeys: poolKeys
+        hasPool: true
       };
       
-      res.json({ valid: true, tokenInfo });
+      res.json({ valid: true, tokenInfo, poolKeys });
     }
   } catch (error) {
     console.error('Token validation error:', error);

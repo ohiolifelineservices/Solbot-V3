@@ -1,16 +1,10 @@
 // API Configuration for Production
 export const API_CONFIG = {
-  // Use environment variable or fallback to current host
-  BASE_URL: process.env.NEXT_PUBLIC_API_URL || 
-           (typeof window !== 'undefined' 
-             ? `${window.location.protocol}//${window.location.hostname}:12001`
-             : 'http://localhost:12001'),
+  // Use environment variable or fallback to production API URL
+  BASE_URL: 'https://work-2-aelzbjdwepigpywc.prod-runtime.all-hands.dev',
   
   // WebSocket URL
-  WS_URL: process.env.NEXT_PUBLIC_WS_URL || 
-          (typeof window !== 'undefined' 
-            ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:12001`
-            : 'ws://localhost:12001'),
+  WS_URL: 'wss://work-2-aelzbjdwepigpywc.prod-runtime.all-hands.dev',
   
   // API endpoints
   ENDPOINTS: {

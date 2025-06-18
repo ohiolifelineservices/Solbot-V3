@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
+import { API_CONFIG } from '@/lib/api'
 
 interface SessionData {
   id: string
@@ -128,12 +129,15 @@ export function AdvancedSessionManager({
   const loadSessions = async () => {
     setIsLoading(true)
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
+      const apiUrl = API_CONFIG.BASE_URL
       const response = await fetch(`${apiUrl}/api/sessions`)
       
       if (response.ok) {
         const data = await response.json()
         setSessions(data.sessions || [])
+        
+        // Also load session files from backend
+        await loadSessionFiles()
       } else {
         toast.error('Failed to load sessions')
       }
@@ -147,7 +151,7 @@ export function AdvancedSessionManager({
 
   const createNewSession = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
+      const apiUrl = API_CONFIG.BASE_URL
       const response = await fetch(`${apiUrl}/api/sessions/new`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -174,7 +178,7 @@ export function AdvancedSessionManager({
     if (!selectedSession) return
     
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
+      const apiUrl = API_CONFIG.BASE_URL
       const response = await fetch(`${apiUrl}/api/sessions/${selectedSession.id}/restart`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -202,7 +206,7 @@ export function AdvancedSessionManager({
     }
     
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
+      const apiUrl = API_CONFIG.BASE_URL
       const response = await fetch(`${apiUrl}/api/sessions/${sessionId}`, {
         method: 'DELETE'
       })
@@ -241,6 +245,58 @@ export function AdvancedSessionManager({
     }
   }
 
+  const loadSessionFiles = async () => {
+    try {
+      const apiUrl = API_CONFIG.BASE_URL
+      const response = await fetch(`${apiUrl}/api/sessions/files`)
+      
+      if (response.ok) {
+        const sessionFiles = await response.json()
+        
+        // Import each session file
+        for (const sessionFile of sessionFiles) {
+          try {
+            const fileResponse = await fetch(`${apiUrl}/api/sessions/files/${sessionFile.filename}`)
+            if (fileResponse.ok) {
+              const sessionData = await fileResponse.json()
+              
+              // Import the session
+              const importResponse = await fetch(`${apiUrl}/api/sessions/import`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  filename: sessionFile.filename,
+                  userWallet: sessionData.admin.address
+                })
+              })
+              
+              if (importResponse.ok) {
+                const importedSession = await importResponse.json()
+                setSessions(prev => {
+                  // Check if session already exists
+                  const exists = prev.some(s => s.sessionId === importedSession.sessionId)
+                  if (!exists) {
+                    return [importedSession, ...prev]
+                  }
+                  return prev
+                })
+              }
+            }
+          } catch (error) {
+            console.error(`Failed to import session file ${sessionFile.filename}:`, error)
+          }
+        }
+        
+        toast.success(`Loaded ${sessionFiles.length} session files`)
+      } else {
+        toast.error('Failed to load session files')
+      }
+    } catch (error) {
+      console.error('Load session files error:', error)
+      toast.error('Failed to load session files')
+    }
+  }
+
   const importSession = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -249,7 +305,7 @@ export function AdvancedSessionManager({
       const text = await file.text()
       const sessionData = JSON.parse(text)
       
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
+      const apiUrl = API_CONFIG.BASE_URL
       const response = await fetch(`${apiUrl}/api/sessions/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -316,6 +372,14 @@ export function AdvancedSessionManager({
         </h2>
         
         <div className="flex items-center gap-2">
+          <button
+            onClick={loadSessionFiles}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg flex items-center gap-2 transition-colors"
+          >
+            <FileText className="w-4 h-4" />
+            Load Files
+          </button>
+          
           <label className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg cursor-pointer flex items-center gap-2 transition-colors">
             <Upload className="w-4 h-4" />
             Import
@@ -414,7 +478,7 @@ export function AdvancedSessionManager({
                             <span className="text-gray-500">Wallets:</span> {session.wallets?.length || 0}
                           </div>
                           <div>
-                            <span className="text-gray-500">Created:</span> {format(new Date(session.timestamp), 'MMM dd, yyyy HH:mm')}
+                            <span className="text-gray-500">Created:</span> {session.timestamp ? format(new Date(session.timestamp), 'MMM dd, yyyy HH:mm') : 'N/A'}
                           </div>
                           <div>
                             <span className="text-gray-500">File:</span> {session.fileName || 'N/A'}
