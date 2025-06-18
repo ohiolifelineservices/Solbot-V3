@@ -15,6 +15,7 @@ import {
   Plus
 } from 'lucide-react'
 import { WalletCreator } from './WalletCreator'
+import { Modal } from './Modal'
 import { WalletData } from '@/types'
 import { useRouter } from 'next/navigation'
 
@@ -192,12 +193,15 @@ export function LandingPage() {
       </div>
 
       {/* Wallet Creator Modal */}
-      {showWalletCreator && (
+      <Modal
+        isOpen={showWalletCreator}
+        onClose={() => setShowWalletCreator(false)}
+        title="Create Wallet"
+      >
         <WalletCreator 
-          onClose={() => setShowWalletCreator(false)}
           onWalletCreated={handleWalletCreated}
         />
-      )}
+      </Modal>
     </div>
   )
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useWallet } from '@solana/wallet-adapter-react'
 import { motion } from 'framer-motion'
 import { Play, Pause, Square, Settings, Search, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -10,9 +11,11 @@ interface TradingControlsProps {
   isTrading: boolean
   onTradingChange: (trading: boolean) => void
   onSessionChange: (sessionId: string | null) => void
+  currentWallet?: any
 }
 
-export function TradingControls({ isTrading, onTradingChange, onSessionChange }: TradingControlsProps) {
+export function TradingControls({ isTrading, onTradingChange, onSessionChange, currentWallet }: TradingControlsProps) {
+  const { publicKey, connected } = useWallet()
   const [tokenAddress, setTokenAddress] = useState('')
   const [strategy, setStrategy] = useState('volume_only')
   const [walletCount, setWalletCount] = useState(5)
@@ -27,27 +30,39 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange }:
     
     setIsValidating(true)
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
-      const response = await fetch(`${apiUrl}/api/tokens/validate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ tokenAddress }),
-      })
+      // Call DexScreener API directly
+      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`)
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch token data')
+      }
       
       const data = await response.json()
       
-      if (data.valid && data.tokenInfo) {
-        setTokenInfo(data.tokenInfo)
-        toast.success('Token validated successfully!')
+      if (data.pairs && data.pairs.length > 0) {
+        const pair = data.pairs[0]
+        const tokenInfo = {
+          address: tokenAddress,
+          name: pair.baseToken.name,
+          symbol: pair.baseToken.symbol,
+          price: parseFloat(pair.priceUsd || '0'),
+          marketCap: pair.marketCap || 0,
+          liquidity: pair.liquidity?.usd || 0,
+          volume24h: pair.volume?.h24 || 0,
+          priceChange24h: pair.priceChange?.h24 || 0,
+          dexId: pair.dexId,
+          pairAddress: pair.pairAddress
+        }
+        
+        setTokenInfo(tokenInfo)
+        toast.success(`Token validated: ${tokenInfo.name} (${tokenInfo.symbol})`)
       } else {
-        toast.error(data.error || 'Invalid token address')
+        toast.error('Token not found or no trading pairs available')
         setTokenInfo(null)
       }
     } catch (error) {
       console.error('Token validation error:', error)
-      toast.error('Failed to validate token')
+      toast.error('Failed to validate token - please check the address')
       setTokenInfo(null)
     } finally {
       setIsValidating(false)
@@ -55,6 +70,11 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange }:
   }
 
   const startTrading = async () => {
+    if (!currentWallet) {
+      toast.error('Please create a wallet first')
+      return
+    }
+
     if (!tokenAddress || !tokenInfo) {
       toast.error('Please validate a token first')
       return
@@ -70,7 +90,7 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange }:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          userWallet: '11111111111111111111111111111111', // Default user wallet
+          userWallet: currentWallet.publicKey,
           tokenAddress,
           tokenName: tokenInfo.name,
           tokenSymbol: tokenInfo.symbol,
@@ -169,6 +189,37 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange }:
           <span className="text-sm text-gray-300">
             {isTrading ? 'Active' : 'Inactive'}
           </span>
+        </div>
+      </div>
+
+      {/* Wallet Connection Status */}
+      <div className="mb-6 p-4 bg-gray-700 rounded-lg border border-gray-600">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-white mb-1">Trading Wallet Status</h3>
+            {currentWallet ? (
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                <span className="text-sm text-green-400">Connected</span>
+                <span className="text-xs text-gray-400 font-mono">
+                  {currentWallet.publicKey.slice(0, 8)}...{currentWallet.publicKey.slice(-8)}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                <span className="text-sm text-red-400">No wallet connected</span>
+              </div>
+            )}
+          </div>
+          {!currentWallet && (
+            <button
+              onClick={() => window.location.href = '/'}
+              className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded transition-colors"
+            >
+              Create Wallet
+            </button>
+          )}
         </div>
       </div>
 

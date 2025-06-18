@@ -36,8 +36,7 @@ export function WalletCreator({ onWalletCreated }: WalletCreatorProps) {
 
     setIsCreating(true)
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
-      const response = await fetch(`${apiUrl}/api/wallets/create`, {
+      const response = await fetch('/api/wallets/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -51,9 +50,17 @@ export function WalletCreator({ onWalletCreated }: WalletCreatorProps) {
 
       if (response.ok) {
         const data = await response.json()
-        setCreatedWallet(data.wallet)
+        // Transform API response to match expected wallet format
+        const wallet = {
+          publicKey: data.publicKey,
+          privateKey: data.privateKey,
+          solBalance: 0,
+          tokenBalance: 0,
+          walletNumber: Date.now() // Generate a unique number
+        }
+        setCreatedWallet(wallet)
         toast.success(data.message)
-        onWalletCreated?.(data.wallet)
+        onWalletCreated?.(wallet)
         
         // Clear form if importing
         if (type === 'import') {
