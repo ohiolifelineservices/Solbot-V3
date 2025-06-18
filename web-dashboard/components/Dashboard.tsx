@@ -30,6 +30,7 @@ export function Dashboard() {
   const [activeTab, setActiveTab] = useState('trading')
   const [isTrading, setIsTrading] = useState(false)
   const [sessionData, setSessionData] = useState(null)
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
 
   const tabs = [
     { id: 'trading', label: 'Trading', icon: TrendingUp },
@@ -103,6 +104,7 @@ export function Dashboard() {
                   <TradingControls 
                     isTrading={isTrading}
                     onTradingChange={setIsTrading}
+                    onSessionChange={setCurrentSessionId}
                   />
                 </div>
                 <div>
@@ -114,7 +116,7 @@ export function Dashboard() {
           )}
 
           {activeTab === 'wallets' && (
-            <WalletManager />
+            <WalletManager sessionId={currentSessionId} />
           )}
 
           {activeTab === 'analytics' && (

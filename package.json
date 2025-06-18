@@ -5,12 +5,17 @@
   "type": "commonjs",
   "main": "index.ts",
   "scripts": {
+    "setup": "npx ts-node production-setup.ts",
     "swap": "node --max-old-space-size=4096 -r ts-node/register index.ts",
     "test": "npx ts-node test-functionality.ts",
     "api": "npx ts-node simple-api-server.ts",
+    "api:prod": "NODE_ENV=production npx ts-node simple-api-server.ts",
     "dev": "concurrently \"npm run api\" \"cd web-dashboard && npm run dev\"",
+    "dev:prod": "concurrently \"npm run api:prod\" \"cd web-dashboard && npm run dev\"",
     "build": "cd web-dashboard && npm run build",
-    "start": "npm run api"
+    "build:all": "npm install && cd web-dashboard && npm install && npm run build",
+    "start": "npm run api:prod",
+    "start:dev": "npm run dev"
   },
   "author": "Gamblers_Passion",
   "license": "MIT",
@@ -30,10 +35,13 @@
     "cors": "^2.8.5",
     "date-fns": "^3.6.0",
     "date-fns-tz": "^3.1.3",
+    "dotenv": "^16.3.1",
     "express": "^4.21.2",
     "keypress": "^0.2.1",
+    "node-fetch": "^2.7.0",
     "prompt-sync": "^4.2.0",
     "readline": "^1.3.0",
+    "socket.io": "^4.7.4",
     "typescript": "^5.4.5"
   },
   "devDependencies": {

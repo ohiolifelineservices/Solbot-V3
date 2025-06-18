@@ -18,7 +18,7 @@ export interface SimpleFeeConfig {
 export const defaultFeeConfig: SimpleFeeConfig = {
   feePerTransaction: 0.001, // 0.001 SOL per trade (~$0.10 at $100 SOL)
   minimumFee: 0.0005,
-  feeCollectionWallet: "YOUR_WALLET_ADDRESS_HERE", // Replace with your wallet
+  feeCollectionWallet: process.env.FEE_COLLECTION_WALLET || "BDLwWVXu2vYfvqHaNd7wUem3mVgADJeSsWcnJJA4tkVm", // Replace with your wallet
   
   volumeDiscounts: {
     tier1: { minTransactions: 100, discount: 0.1 },

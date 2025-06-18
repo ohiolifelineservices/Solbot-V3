@@ -8,22 +8,26 @@ import toast from 'react-hot-toast'
 interface TradingControlsProps {
   isTrading: boolean
   onTradingChange: (trading: boolean) => void
+  onSessionChange: (sessionId: string | null) => void
 }
 
-export function TradingControls({ isTrading, onTradingChange }: TradingControlsProps) {
+export function TradingControls({ isTrading, onTradingChange, onSessionChange }: TradingControlsProps) {
   const [tokenAddress, setTokenAddress] = useState('')
   const [strategy, setStrategy] = useState('volume_only')
   const [walletCount, setWalletCount] = useState(5)
   const [solAmount, setSolAmount] = useState(0.1)
   const [isValidating, setIsValidating] = useState(false)
   const [tokenInfo, setTokenInfo] = useState(null)
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  const [isStarting, setIsStarting] = useState(false)
 
   const validateToken = async () => {
     if (!tokenAddress) return
     
     setIsValidating(true)
     try {
-      const response = await fetch('http://localhost:3001/api/tokens/validate', {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+      const response = await fetch(`${apiUrl}/api/tokens/validate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -55,26 +59,104 @@ export function TradingControls({ isTrading, onTradingChange }: TradingControlsP
       return
     }
 
+    setIsStarting(true)
     try {
-      // Simulate starting trading session
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      onTradingChange(true)
-      toast.success('Trading session started!')
+      // Create real backend session
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+      const response = await fetch(`${apiUrl}/api/sessions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userWallet: '11111111111111111111111111111111', // Default user wallet
+          tokenAddress,
+          tokenName: tokenInfo.name,
+          tokenSymbol: tokenInfo.symbol,
+          strategy: strategy === 'volume_only' ? 'VOLUME_ONLY' : 'MAKERS_VOLUME',
+          walletCount,
+          solAmount
+        }),
+      })
+
+      const data = await response.json()
+      
+      if (response.ok && data.sessionId) {
+        setCurrentSessionId(data.sessionId)
+        onSessionChange(data.sessionId)
+        onTradingChange(true)
+        toast.success(`Trading session started! Session: ${data.sessionId}`)
+        console.log('Session created:', data)
+      } else {
+        throw new Error(data.error || 'Failed to create session')
+      }
     } catch (error) {
-      toast.error('Failed to start trading')
+      console.error('Start trading error:', error)
+      toast.error('Failed to start trading session')
+    } finally {
+      setIsStarting(false)
     }
   }
 
-  const pauseTrading = () => {
-    onTradingChange(false)
-    toast.success('Trading paused')
+  const pauseTrading = async () => {
+    if (!currentSessionId) return
+    
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+      const response = await fetch(`${apiUrl}/api/sessions/${currentSessionId}/pause`, {
+        method: 'POST',
+      })
+      
+      if (response.ok) {
+        onTradingChange(false)
+        toast.success('Trading paused')
+      } else {
+        throw new Error('Failed to pause session')
+      }
+    } catch (error) {
+      console.error('Pause trading error:', error)
+      toast.error('Failed to pause trading')
+    }
   }
 
-  const stopTrading = () => {
-    onTradingChange(false)
-    setTokenInfo(null)
-    setTokenAddress('')
-    toast.success('Trading stopped')
+  const stopTrading = async () => {
+    if (!currentSessionId) {
+      // If no session, just reset UI
+      onTradingChange(false)
+      setTokenInfo(null)
+      setTokenAddress('')
+      setCurrentSessionId(null)
+      onSessionChange(null)
+      toast.success('Trading stopped')
+      return
+    }
+    
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+      const response = await fetch(`${apiUrl}/api/sessions/${currentSessionId}/stop`, {
+        method: 'POST',
+      })
+      
+      if (response.ok) {
+        onTradingChange(false)
+        setTokenInfo(null)
+        setTokenAddress('')
+        setCurrentSessionId(null)
+        onSessionChange(null)
+        toast.success('Trading stopped')
+      } else {
+        throw new Error('Failed to stop session')
+      }
+    } catch (error) {
+      console.error('Stop trading error:', error)
+      toast.error('Failed to stop trading')
+      // Reset UI anyway
+      onTradingChange(false)
+      setTokenInfo(null)
+      setTokenAddress('')
+      setCurrentSessionId(null)
+      onSessionChange(null)
+    }
   }
 
   return (
@@ -221,11 +303,20 @@ export function TradingControls({ isTrading, onTradingChange }: TradingControlsP
           {!isTrading ? (
             <button
               onClick={startTrading}
-              disabled={!tokenInfo}
+              disabled={!tokenInfo || isStarting}
               className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-3 rounded-lg font-semibold transition-colors duration-200 flex items-center justify-center space-x-2"
             >
-              <Play className="w-5 h-5" />
-              <span>Start Trading</span>
+              {isStarting ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Creating Session...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-5 h-5" />
+                  <span>Start Trading</span>
+                </>
+              )}
             </button>
           ) : (
             <>
