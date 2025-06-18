@@ -28,7 +28,7 @@ import { MetricsCards } from './MetricsCards'
 import { VolumeChart } from './VolumeChart'
 import { TransactionHistory } from './TransactionHistory'
 import { WalletManager } from './WalletManager'
-import { WalletCreator } from './WalletCreator'
+
 import { SessionManager } from './SessionManager'
 import { UserStats } from './UserStats'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -42,7 +42,7 @@ export function Dashboard() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [currentWallet, setCurrentWallet] = useState<any>(null)
   const [realtimeMetrics, setRealtimeMetrics] = useState<any>(null)
-  const [showWalletCreator, setShowWalletCreator] = useState(false)
+
   const [isProductionMode, setIsProductionMode] = useState(true)
   const [sessionWallets, setSessionWallets] = useState<any[]>([])
   const [tokenAddress, setTokenAddress] = useState<string>('')
@@ -171,13 +171,13 @@ export function Dashboard() {
                 <span className="text-sm text-gray-300">Production</span>
               </div>
 
-              {/* Current Wallet Info */}
-              {currentWallet && (
+              {/* Current Wallet Info - Only show if wallet came from Backend Flow */}
+              {currentWallet && currentWallet.fromBackendFlow && (
                 <div className="bg-gray-700 rounded-lg px-4 py-2 border border-gray-600">
                   <div className="flex items-center space-x-3">
                     <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
                     <div>
-                      <div className="text-xs text-gray-400">Active Trading Wallet</div>
+                      <div className="text-xs text-gray-400">Admin Trading Wallet</div>
                       <div className="text-sm font-mono text-white">
                         {currentWallet.publicKey.slice(0, 8)}...{currentWallet.publicKey.slice(-8)}
                       </div>
@@ -197,6 +197,17 @@ export function Dashboard() {
                   </div>
                 </div>
               )}
+
+              {/* Start Trading Setup Button - Only show if no wallet from Backend Flow */}
+              {!currentWallet?.fromBackendFlow && (
+                <button
+                  onClick={() => setActiveTab('trading')}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
+                >
+                  <Wallet className="w-4 h-4" />
+                  <span>Start Trading Setup</span>
+                </button>
+              )}
               <UserStats />
               <WalletMultiButton className="!bg-gray-700 hover:!bg-gray-600 !border-gray-600" />
             </div>
@@ -204,70 +215,7 @@ export function Dashboard() {
         </div>
       </header>
 
-      {/* Welcome Section for New Wallets */}
-      {currentWallet && (
-        <div className="bg-gradient-to-r from-blue-600 to-purple-600 border-b border-gray-700">
-          <div className="max-w-7xl mx-auto px-6 py-6">
-            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-6">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <h2 className="text-2xl font-bold text-white mb-2">
-                    🎉 Wallet Created Successfully!
-                  </h2>
-                  <p className="text-blue-100 mb-4">
-                    Your new Solana wallet is ready for trading. Keep your private key safe!
-                  </p>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="bg-black/20 rounded-lg p-4">
-                      <div className="text-sm text-blue-200 mb-1">Public Key (Address)</div>
-                      <div className="font-mono text-white text-sm break-all">
-                        {currentWallet.publicKey}
-                      </div>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(currentWallet.publicKey)
-                        }}
-                        className="mt-2 text-xs text-blue-300 hover:text-white transition-colors"
-                      >
-                        📋 Copy Address
-                      </button>
-                    </div>
-                    
-                    <div className="bg-black/20 rounded-lg p-4">
-                      <div className="text-sm text-blue-200 mb-1">Private Key (Keep Secret!)</div>
-                      <div className="font-mono text-white text-sm break-all">
-                        {currentWallet.privateKey.slice(0, 20)}...
-                      </div>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(currentWallet.privateKey)
-                        }}
-                        className="mt-2 text-xs text-red-300 hover:text-white transition-colors"
-                      >
-                        🔐 Copy Private Key
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                
-                <button
-                  onClick={() => {
-                    localStorage.removeItem('currentWallet')
-                    setCurrentWallet(null)
-                  }}
-                  className="text-white/60 hover:text-white transition-colors ml-4"
-                  title="Dismiss welcome message"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Navigation Tabs */}
@@ -305,6 +253,10 @@ export function Dashboard() {
                   onSessionChange={setCurrentSessionId}
                   currentWallet={currentWallet}
                   sessionData={sessionData}
+                  onWalletCreated={(wallet) => {
+                    setCurrentWallet(wallet)
+                    localStorage.setItem('currentWallet', JSON.stringify(wallet))
+                  }}
                 />
               ) : (
                 <div className="grid lg:grid-cols-3 gap-8">
@@ -314,7 +266,6 @@ export function Dashboard() {
                       onTradingChange={setIsTrading}
                       onSessionChange={setCurrentSessionId}
                       currentWallet={currentWallet}
-                      onCreateWallet={() => setShowWalletCreator(true)}
                     />
                   </div>
                   <div>
@@ -354,7 +305,7 @@ export function Dashboard() {
                       setActiveTab('trading')
                     }}
                   />
-                  <WalletCreator />
+
                 </>
               )}
             </div>
@@ -474,29 +425,7 @@ export function Dashboard() {
         </motion.div>
       </div>
 
-      {/* Wallet Creator Modal */}
-      {showWalletCreator && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-white">Create Trading Wallet</h2>
-              <button
-                onClick={() => setShowWalletCreator(false)}
-                className="text-gray-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-            <WalletCreator 
-              onWalletCreated={(wallet) => {
-                setCurrentWallet(wallet)
-                setShowWalletCreator(false)
-                toast.success('Wallet connected to dashboard!')
-              }}
-            />
-          </div>
-        </div>
-      )}
+
     </div>
   )
 }

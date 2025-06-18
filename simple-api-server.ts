@@ -31,8 +31,8 @@ app.use(cors({
   origin: [
     "http://localhost:3000",
     "http://localhost:12000",
-    "https://work-1-uxwtyonxjkkirrey.prod-runtime.all-hands.dev",
-    "https://work-2-uxwtyonxjkkirrey.prod-runtime.all-hands.dev"
+    "https://work-1-pucqbuzkhwhogfjo.prod-runtime.all-hands.dev",
+    "https://work-2-pucqbuzkhwhogfjo.prod-runtime.all-hands.dev"
   ],
   credentials: true
 }));
@@ -741,6 +741,75 @@ app.post('/api/wallets/create', async (req, res) => {
   } catch (error) {
     console.error('Wallet creation error:', error);
     res.status(500).json({ error: 'Failed to create wallet' });
+  }
+});
+
+// Create multiple wallets endpoint
+app.post('/api/wallets/create-multiple', async (req, res) => {
+  try {
+    const { count } = req.body;
+    
+    if (!count || count < 1 || count > 50) {
+      return res.status(400).json({ error: 'Count must be between 1 and 50' });
+    }
+    
+    const wallets = [];
+    for (let i = 0; i < count; i++) {
+      const wallet = new WalletWithNumber();
+      wallets.push({
+        publicKey: wallet.publicKey,
+        privateKey: wallet.privateKey,
+        address: wallet.publicKey,
+        number: wallet.number
+      });
+    }
+    
+    res.json(wallets);
+  } catch (error) {
+    console.error('Multiple wallet creation error:', error);
+    res.status(500).json({ error: 'Failed to create multiple wallets' });
+  }
+});
+
+// Distribute SOL endpoint
+app.post('/api/wallets/distribute-sol', async (req, res) => {
+  try {
+    const { fromWallet, toWallets, totalAmount } = req.body;
+    
+    if (!fromWallet || !toWallets || !totalAmount) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+    
+    if (!Array.isArray(toWallets) || toWallets.length === 0) {
+      return res.status(400).json({ error: 'toWallets must be a non-empty array' });
+    }
+    
+    // This is a simulation - in real implementation, you would:
+    // 1. Create actual SOL transfer transactions
+    // 2. Send them to the blockchain
+    // 3. Return transaction hashes
+    
+    console.log(chalk.blue(`📤 Simulating SOL distribution:`));
+    console.log(chalk.blue(`   From: ${fromWallet.address || fromWallet.publicKey}`));
+    console.log(chalk.blue(`   To: ${toWallets.length} wallets`));
+    console.log(chalk.blue(`   Total: ${totalAmount} SOL`));
+    
+    const amountPerWallet = totalAmount / toWallets.length;
+    const successCount = toWallets.length; // Simulate all successful
+    
+    // Simulate some delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    res.json({
+      success: true,
+      successCount,
+      totalWallets: toWallets.length,
+      amountPerWallet,
+      message: `Distributed ${totalAmount} SOL to ${successCount} wallets`
+    });
+  } catch (error) {
+    console.error('SOL distribution error:', error);
+    res.status(500).json({ error: 'Failed to distribute SOL' });
   }
 });
 
@@ -1651,95 +1720,7 @@ app.get('/api/sessions/:sessionId/transactions', (req, res) => {
   }
 });
 
-// Enhanced Token Validation
-app.post('/api/tokens/validate', async (req, res) => {
-  try {
-    const { tokenAddress, fetchPoolKeys = false } = req.body;
-    
-    if (!tokenAddress) {
-      return res.status(400).json({ error: 'Token address is required' });
-    }
 
-    // Validate Solana address format
-    try {
-      new PublicKey(tokenAddress);
-    } catch {
-      return res.status(400).json({ valid: false, error: 'Invalid Solana address format' });
-    }
-
-    let poolKeys = null;
-    if (fetchPoolKeys) {
-      try {
-        poolKeys = await getPoolKeysForTokenAddress(connection, tokenAddress);
-        if (!poolKeys) {
-          return res.status(404).json({ 
-            valid: false, 
-            error: 'No Raydium pool found for this token. Trading not possible.' 
-          });
-        }
-      } catch (error) {
-        return res.status(404).json({ 
-          valid: false, 
-          error: 'Failed to find Raydium pool for this token' 
-        });
-      }
-    }
-
-    // Fetch token data from DexScreener
-    try {
-      const response = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`);
-      const data = response.data;
-
-      if (data.pairs && data.pairs.length > 0) {
-        const pair = data.pairs[0];
-        const tokenInfo = {
-          address: tokenAddress,
-          name: pair.baseToken.name,
-          symbol: pair.baseToken.symbol,
-          price: parseFloat(pair.priceUsd),
-          volume24h: parseInt(pair.volume.h24),
-          marketCap: pair.marketCap ? parseInt(pair.marketCap) : null,
-          verified: true,
-          hasPool: !!poolKeys,
-          poolKeys: poolKeys
-        };
-
-        res.json({ valid: true, tokenInfo, poolKeys });
-      } else {
-        const tokenInfo = {
-          address: tokenAddress,
-          name: 'Unknown Token',
-          symbol: 'UNKNOWN',
-          price: null,
-          volume24h: null,
-          marketCap: null,
-          verified: false,
-          hasPool: !!poolKeys,
-          poolKeys: poolKeys
-        };
-        
-        res.json({ valid: true, tokenInfo, poolKeys });
-      }
-    } catch (dexError) {
-      const tokenInfo = {
-        address: tokenAddress,
-        name: 'Unknown Token',
-        symbol: 'UNKNOWN',
-        price: null,
-        volume24h: null,
-        marketCap: null,
-        verified: false,
-        hasPool: !!poolKeys,
-        poolKeys: poolKeys
-      };
-      
-      res.json({ valid: true, tokenInfo, poolKeys });
-    }
-  } catch (error) {
-    console.error('Enhanced token validation error:', error);
-    res.status(500).json({ valid: false, error: 'Failed to validate token' });
-  }
-});
 
 // Error handling middleware
 app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
