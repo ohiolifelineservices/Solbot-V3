@@ -26,6 +26,8 @@ import { WalletManager } from './WalletManager'
 import { WalletCreator } from './WalletCreator'
 import { SessionManager } from './SessionManager'
 import { UserStats } from './UserStats'
+import { useWebSocket } from '../hooks/useWebSocket'
+import toast from 'react-hot-toast'
 
 export function Dashboard() {
   const { publicKey, disconnect } = useWallet()
@@ -34,6 +36,8 @@ export function Dashboard() {
   const [sessionData, setSessionData] = useState(null)
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [currentWallet, setCurrentWallet] = useState<any>(null)
+  const [realtimeMetrics, setRealtimeMetrics] = useState<any>(null)
+  const [showWalletCreator, setShowWalletCreator] = useState(false)
 
   // Load wallet from localStorage on mount
   useEffect(() => {
@@ -46,6 +50,53 @@ export function Dashboard() {
       }
     }
   }, [])
+
+  // WebSocket integration for real-time updates
+  const { isConnected, error: wsError, joinSession, leaveSession } = useWebSocket({
+    sessionId: currentSessionId,
+    onSessionStarted: (data) => {
+      console.log('Session started:', data)
+      setIsTrading(true)
+      toast.success('Trading session started!')
+    },
+    onSessionPaused: (data) => {
+      console.log('Session paused:', data)
+      setIsTrading(false)
+      toast.info('Trading session paused')
+    },
+    onSessionStopped: (data) => {
+      console.log('Session stopped:', data)
+      setIsTrading(false)
+      toast.info('Trading session stopped')
+    },
+    onTransactionStarted: (data) => {
+      console.log('Transaction started:', data)
+      toast.loading(`${data.transaction.type} transaction started...`, { id: data.transaction.id })
+    },
+    onTransactionSuccess: (data) => {
+      console.log('Transaction success:', data)
+      toast.success(`${data.transaction.type} transaction successful!`, { id: data.transaction.id })
+    },
+    onTransactionFailed: (data) => {
+      console.log('Transaction failed:', data)
+      toast.error(`${data.transaction.type} transaction failed: ${data.error}`, { id: data.transaction.id })
+    },
+    onTradingError: (data) => {
+      console.error('Trading error:', data)
+      toast.error(`Trading error: ${data.error}`)
+    },
+    onMetricsUpdate: (data) => {
+      console.log('Metrics update:', data)
+      setRealtimeMetrics(data)
+    }
+  })
+
+  // Handle session changes
+  useEffect(() => {
+    if (currentSessionId && joinSession) {
+      joinSession(currentSessionId)
+    }
+  }, [currentSessionId, joinSession])
 
   const tabs = [
     { id: 'trading', label: 'Trading', icon: TrendingUp },
@@ -69,12 +120,20 @@ export function Dashboard() {
                 <span className="text-2xl font-bold text-white">Solbot</span>
               </div>
               
-              {/* Status Indicator */}
-              <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full ${isTrading ? 'bg-green-500' : 'bg-gray-500'}`}></div>
-                <span className="text-sm text-gray-300">
-                  {isTrading ? 'Trading Active' : 'Idle'}
-                </span>
+              {/* Status Indicators */}
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${isTrading ? 'bg-green-500' : 'bg-gray-500'}`}></div>
+                  <span className="text-sm text-gray-300">
+                    {isTrading ? 'Trading Active' : 'Idle'}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-blue-500' : 'bg-red-500'}`}></div>
+                  <span className="text-sm text-gray-300">
+                    {isConnected ? 'Connected' : 'Disconnected'}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -212,6 +271,7 @@ export function Dashboard() {
                     onTradingChange={setIsTrading}
                     onSessionChange={setCurrentSessionId}
                     currentWallet={currentWallet}
+                    onCreateWallet={() => setShowWalletCreator(true)}
                   />
                 </div>
                 <div>
@@ -324,6 +384,30 @@ export function Dashboard() {
           )}
         </motion.div>
       </div>
+
+      {/* Wallet Creator Modal */}
+      {showWalletCreator && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-white">Create Trading Wallet</h2>
+              <button
+                onClick={() => setShowWalletCreator(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <WalletCreator 
+              onWalletCreated={(wallet) => {
+                setCurrentWallet(wallet)
+                setShowWalletCreator(false)
+                toast.success('Wallet connected to dashboard!')
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
