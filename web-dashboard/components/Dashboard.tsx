@@ -19,6 +19,11 @@ import {
   Zap
 } from 'lucide-react'
 import { TradingControls } from './TradingControls'
+import { AdvancedTradingControls } from './AdvancedTradingControls'
+import { BackendFlowTradingControls } from './BackendFlowTradingControls'
+import { AdvancedSessionManager } from './AdvancedSessionManager'
+import { AdvancedWalletManager } from './AdvancedWalletManager'
+import { RealTimeMonitor } from './RealTimeMonitor'
 import { MetricsCards } from './MetricsCards'
 import { VolumeChart } from './VolumeChart'
 import { TransactionHistory } from './TransactionHistory'
@@ -38,6 +43,9 @@ export function Dashboard() {
   const [currentWallet, setCurrentWallet] = useState<any>(null)
   const [realtimeMetrics, setRealtimeMetrics] = useState<any>(null)
   const [showWalletCreator, setShowWalletCreator] = useState(false)
+  const [isProductionMode, setIsProductionMode] = useState(true)
+  const [sessionWallets, setSessionWallets] = useState<any[]>([])
+  const [tokenAddress, setTokenAddress] = useState<string>('')
 
   // Load wallet from localStorage on mount
   useEffect(() => {
@@ -98,7 +106,14 @@ export function Dashboard() {
     }
   }, [currentSessionId, joinSession])
 
-  const tabs = [
+  const tabs = isProductionMode ? [
+    { id: 'trading', label: 'Advanced Trading', icon: TrendingUp },
+    { id: 'sessions', label: 'Session Manager', icon: Activity },
+    { id: 'wallets', label: 'Wallet Manager', icon: Wallet },
+    { id: 'monitor', label: 'Real-Time Monitor', icon: Zap },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { id: 'settings', label: 'Settings', icon: Settings },
+  ] : [
     { id: 'trading', label: 'Trading', icon: TrendingUp },
     { id: 'sessions', label: 'Sessions', icon: Activity },
     { id: 'wallets', label: 'Wallets', icon: Wallet },
@@ -138,6 +153,24 @@ export function Dashboard() {
             </div>
 
             <div className="flex items-center space-x-4">
+              {/* Production Mode Toggle */}
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-gray-300">Simple</span>
+                <button
+                  onClick={() => setIsProductionMode(!isProductionMode)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    isProductionMode ? 'bg-blue-600' : 'bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      isProductionMode ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+                <span className="text-sm text-gray-300">Production</span>
+              </div>
+
               {/* Current Wallet Info */}
               {currentWallet && (
                 <div className="bg-gray-700 rounded-lg px-4 py-2 border border-gray-600">
@@ -152,6 +185,7 @@ export function Dashboard() {
                     <button
                       onClick={() => {
                         navigator.clipboard.writeText(currentWallet.publicKey)
+                        toast.success('Public key copied to clipboard')
                       }}
                       className="text-gray-400 hover:text-white transition-colors"
                       title="Copy public key"
@@ -264,38 +298,93 @@ export function Dashboard() {
           {activeTab === 'trading' && (
             <div className="space-y-8">
               <MetricsCards />
-              <div className="grid lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2">
-                  <TradingControls 
-                    isTrading={isTrading}
-                    onTradingChange={setIsTrading}
-                    onSessionChange={setCurrentSessionId}
-                    currentWallet={currentWallet}
-                    onCreateWallet={() => setShowWalletCreator(true)}
-                  />
+              {isProductionMode ? (
+                <BackendFlowTradingControls
+                  isTrading={isTrading}
+                  onTradingChange={setIsTrading}
+                  onSessionChange={setCurrentSessionId}
+                  currentWallet={currentWallet}
+                  sessionData={sessionData}
+                />
+              ) : (
+                <div className="grid lg:grid-cols-3 gap-8">
+                  <div className="lg:col-span-2">
+                    <TradingControls 
+                      isTrading={isTrading}
+                      onTradingChange={setIsTrading}
+                      onSessionChange={setCurrentSessionId}
+                      currentWallet={currentWallet}
+                      onCreateWallet={() => setShowWalletCreator(true)}
+                    />
+                  </div>
+                  <div>
+                    <VolumeChart />
+                  </div>
                 </div>
-                <div>
-                  <VolumeChart />
-                </div>
-              </div>
+              )}
               <TransactionHistory />
             </div>
           )}
 
           {activeTab === 'sessions' && (
             <div className="space-y-8">
-              <SessionManager 
-                onSessionImport={(sessionId) => {
-                  setCurrentSessionId(sessionId)
-                  setActiveTab('trading')
-                }}
-              />
-              <WalletCreator />
+              {isProductionMode ? (
+                <AdvancedSessionManager
+                  currentSession={sessionData}
+                  onSessionSelect={(session) => {
+                    setSessionData(session)
+                    setCurrentSessionId(session.id)
+                    setTokenAddress(session.tokenAddress || '')
+                  }}
+                  onSessionRestart={(sessionId, restartPoint) => {
+                    console.log(`Restarting session ${sessionId} from point ${restartPoint}`)
+                  }}
+                  onSessionDelete={(sessionId) => {
+                    if (currentSessionId === sessionId) {
+                      setCurrentSessionId(null)
+                      setSessionData(null)
+                    }
+                  }}
+                />
+              ) : (
+                <>
+                  <SessionManager 
+                    onSessionImport={(sessionId) => {
+                      setCurrentSessionId(sessionId)
+                      setActiveTab('trading')
+                    }}
+                  />
+                  <WalletCreator />
+                </>
+              )}
             </div>
           )}
 
           {activeTab === 'wallets' && (
-            <WalletManager sessionId={currentSessionId} />
+            <div className="space-y-8">
+              {isProductionMode ? (
+                <AdvancedWalletManager
+                  currentWallet={currentWallet}
+                  sessionWallets={sessionWallets}
+                  tokenAddress={tokenAddress}
+                  onWalletSelect={(wallet) => {
+                    setCurrentWallet(wallet)
+                    localStorage.setItem('currentWallet', JSON.stringify(wallet))
+                  }}
+                  onWalletsUpdate={setSessionWallets}
+                />
+              ) : (
+                <WalletManager sessionId={currentSessionId} />
+              )}
+            </div>
+          )}
+
+          {activeTab === 'monitor' && isProductionMode && (
+            <RealTimeMonitor
+              sessionId={currentSessionId}
+              tokenAddress={tokenAddress}
+              isConnected={isConnected}
+            />
           )}
 
           {activeTab === 'analytics' && (

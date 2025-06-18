@@ -17,9 +17,15 @@ const nextConfig = {
     return config;
   },
   env: {
-    NEXT_PUBLIC_API_URL: process.env.NODE_ENV === 'production' 
-      ? 'https://work-2-sirsbqizcgqhfecu.prod-runtime.all-hands.dev'
-      : 'http://localhost:12001'
+    NEXT_PUBLIC_API_URL: 'https://work-2-uxwtyonxjkkirrey.prod-runtime.all-hands.dev'
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: 'https://work-2-uxwtyonxjkkirrey.prod-runtime.all-hands.dev/api/:path*',
+      },
+    ];
   },
   async headers() {
     return [

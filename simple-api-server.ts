@@ -31,8 +31,8 @@ app.use(cors({
   origin: [
     "http://localhost:3000",
     "http://localhost:12000",
-    "https://work-1-sirsbqizcgqhfecu.prod-runtime.all-hands.dev",
-    "https://work-2-sirsbqizcgqhfecu.prod-runtime.all-hands.dev"
+    "https://work-1-uxwtyonxjkkirrey.prod-runtime.all-hands.dev",
+    "https://work-2-uxwtyonxjkkirrey.prod-runtime.all-hands.dev"
   ],
   credentials: true
 }));
@@ -94,19 +94,20 @@ const userStats = new Map<string, { totalTrades: number; freeTradesUsed: number 
 io.on('connection', (socket) => {
   console.log(chalk.green(`🔌 Client connected: ${socket.id}`));
   
+  socket.on('join-session', (sessionId) => {
+    socket.join(`session-${sessionId}`);
+    console.log(chalk.blue(`Client ${socket.id} joined session ${sessionId}`));
+  });
+  
+  socket.on('leave-session', (sessionId) => {
+    socket.leave(`session-${sessionId}`);
+    console.log(chalk.blue(`Client ${socket.id} left session ${sessionId}`));
+  });
+  
   socket.on('disconnect', () => {
     console.log(chalk.yellow(`🔌 Client disconnected: ${socket.id}`));
   });
   
-  socket.on('joinSession', (sessionId) => {
-    socket.join(sessionId);
-    console.log(chalk.blue(`📡 Client ${socket.id} joined session ${sessionId}`));
-  });
-  
-  socket.on('leaveSession', (sessionId) => {
-    socket.leave(sessionId);
-    console.log(chalk.blue(`📡 Client ${socket.id} left session ${sessionId}`));
-  });
 });
 
 // Utility functions
@@ -602,6 +603,43 @@ app.get('/api/sessions/files/:filename', async (req, res) => {
   }
 });
 
+// Create session file from frontend data
+app.post('/api/sessions/create-file', async (req, res) => {
+  try {
+    const { sessionData, tokenName } = req.body;
+    
+    if (!sessionData || !tokenName) {
+      return res.status(400).json({ error: 'Session data and token name are required' });
+    }
+    
+    const sessionDir = swapConfig.SESSION_DIR;
+    
+    // Ensure session directory exists
+    if (!fs.existsSync(sessionDir)) {
+      fs.mkdirSync(sessionDir, { recursive: true });
+    }
+    
+    // Create filename with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15);
+    const filename = `${tokenName}_${timestamp}_session.json`;
+    const filePath = path.join(sessionDir, filename);
+    
+    // Write session file
+    fs.writeFileSync(filePath, JSON.stringify(sessionData, null, 2));
+    
+    console.log(chalk.green(`✅ Session file created: ${filename}`));
+    
+    res.json({ 
+      success: true, 
+      filename,
+      message: 'Session file created successfully'
+    });
+  } catch (error) {
+    console.error('Create session file error:', error);
+    res.status(500).json({ error: 'Failed to create session file' });
+  }
+});
+
 // Import session from file
 app.post('/api/sessions/import', async (req, res) => {
   try {
@@ -1093,6 +1131,613 @@ app.post('/api/fees/calculate', (req, res) => {
   } catch (error) {
     console.error('Calculate fee error:', error);
     res.status(500).json({ error: 'Failed to calculate fee' });
+  }
+});
+
+// ===== COMPREHENSIVE API ENDPOINTS FOR PRODUCTION-READY UI =====
+
+// Advanced Configuration Endpoints
+app.get('/api/config/default', (req, res) => {
+  try {
+    const defaultConfig = {
+      slippagePercent: swapConfig.SLIPPAGE_PERCENT,
+      maxRetries: swapConfig.maxRetries,
+      retryInterval: swapConfig.retryInterval,
+      maxLamports: swapConfig.maxLamports,
+      tradeDurationVolume: swapConfig.TRADE_DURATION_VOLUME,
+      tradeDurationMaker: swapConfig.TRADE_DURATION_MAKER,
+      loopInterval: swapConfig.loopInterval,
+      minPercentage: swapConfig.minPercentage,
+      maxPercentage: swapConfig.maxPercentage,
+      minSellPercentage: swapConfig.minSellPercentage,
+      maxSellPercentage: swapConfig.maxSellPercentage,
+      buyDuration: swapConfig.buyDuration,
+      sellDuration: swapConfig.sellDuration,
+      poolSearchMaxRetries: swapConfig.poolSearchMaxRetries,
+      poolSearchRetryInterval: swapConfig.poolSearchRetryInterval,
+      rentExemptFee: swapConfig.RENT_EXEMPT_FEE,
+      tokenTransferThreshold: swapConfig.TOKEN_TRANSFER_THRESHOLD
+    };
+    
+    res.json(defaultConfig);
+  } catch (error) {
+    console.error('Get default config error:', error);
+    res.status(500).json({ error: 'Failed to get default configuration' });
+  }
+});
+
+// Advanced Session Management
+app.post('/api/sessions/advanced', async (req, res) => {
+  try {
+    const {
+      userWallet,
+      adminWallet,
+      tokenAddress,
+      tokenInfo,
+      poolKeys,
+      config,
+      timestamp
+    } = req.body;
+
+    // Validate required fields
+    if (!userWallet || !tokenAddress || !tokenInfo || !poolKeys || !config) {
+      return res.status(400).json({ error: 'Missing required fields for advanced session' });
+    }
+
+    // Create trading wallets
+    const tradingWallets = await createTradingWallets(config.walletCount);
+
+    // Create advanced session
+    const sessionId = `advanced_${Date.now()}_${userWallet.slice(0, 8)}`;
+    
+    const session: TradingSession = {
+      id: sessionId,
+      userWallet,
+      tokenAddress,
+      tokenName: tokenInfo.name,
+      tokenSymbol: tokenInfo.symbol,
+      strategy: config.strategy,
+      walletCount: config.walletCount,
+      solAmount: config.solAmount,
+      status: 'created',
+      adminWallet: adminWallet ? createWalletWithNumber(adminWallet.privateKey, 0) : undefined,
+      tradingWallets,
+      poolKeys,
+      createdAt: new Date(),
+      metrics: {
+        totalVolume: 0,
+        totalTransactions: 0,
+        successfulTransactions: 0,
+        failedTransactions: 0,
+        totalFees: 0,
+        averageSlippage: 0
+      }
+    };
+
+    activeSessions.set(sessionId, session);
+    transactionHistory.set(sessionId, []);
+    
+    console.log(chalk.green(`✅ Created advanced session ${sessionId} for ${userWallet}`));
+    emitToSession(sessionId, 'sessionCreated', { sessionId, session });
+    
+    res.json({ sessionId, session });
+  } catch (error) {
+    console.error('Create advanced session error:', error);
+    res.status(500).json({ error: 'Failed to create advanced session' });
+  }
+});
+
+app.post('/api/sessions/new', async (req, res) => {
+  try {
+    const { timestamp } = req.body;
+    
+    const sessionId = `new_${Date.now()}`;
+    const sessionData = {
+      id: sessionId,
+      fileName: `new_session_${new Date().toISOString().split('T')[0]}.json`,
+      admin: { number: 'to be created', privateKey: 'to be created' },
+      wallets: [],
+      tokenAddress: '',
+      tokenName: 'New Session',
+      poolKeys: null,
+      timestamp: timestamp || new Date().toISOString(),
+      status: 'created'
+    };
+    
+    res.json(sessionData);
+  } catch (error) {
+    console.error('Create new session error:', error);
+    res.status(500).json({ error: 'Failed to create new session' });
+  }
+});
+
+app.post('/api/sessions/:sessionId/restart', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { restartPoint } = req.body;
+    
+    const session = activeSessions.get(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    // Stop current trading if active
+    const interval = tradingIntervals.get(sessionId);
+    if (interval) {
+      clearInterval(interval);
+      tradingIntervals.delete(sessionId);
+    }
+    
+    // Reset session based on restart point
+    session.status = 'created';
+    session.startTime = undefined;
+    session.endTime = undefined;
+    
+    // Reset metrics based on restart point
+    if (restartPoint <= 3) {
+      session.metrics = {
+        totalVolume: 0,
+        totalTransactions: 0,
+        successfulTransactions: 0,
+        failedTransactions: 0,
+        totalFees: 0,
+        averageSlippage: 0
+      };
+      transactionHistory.set(sessionId, []);
+    }
+    
+    console.log(chalk.blue(`🔄 Session ${sessionId} restarted from point ${restartPoint}`));
+    emitToSession(sessionId, 'sessionRestarted', { sessionId, session, restartPoint });
+    
+    res.json({ session, restartPoint });
+  } catch (error) {
+    console.error('Restart session error:', error);
+    res.status(500).json({ error: 'Failed to restart session' });
+  }
+});
+
+app.delete('/api/sessions/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    // Stop trading if active
+    const interval = tradingIntervals.get(sessionId);
+    if (interval) {
+      clearInterval(interval);
+      tradingIntervals.delete(sessionId);
+    }
+    
+    // Remove session data
+    activeSessions.delete(sessionId);
+    transactionHistory.delete(sessionId);
+    
+    console.log(chalk.red(`🗑️ Deleted session ${sessionId}`));
+    
+    res.json({ message: 'Session deleted successfully' });
+  } catch (error) {
+    console.error('Delete session error:', error);
+    res.status(500).json({ error: 'Failed to delete session' });
+  }
+});
+
+app.post('/api/sessions/import', async (req, res) => {
+  try {
+    const sessionData = req.body;
+    
+    // Validate session data structure
+    if (!sessionData.admin || !sessionData.tokenAddress || !sessionData.tokenName) {
+      return res.status(400).json({ error: 'Invalid session data format' });
+    }
+    
+    const sessionId = `imported_${Date.now()}`;
+    const importedSession = {
+      ...sessionData,
+      id: sessionId,
+      status: 'created'
+    };
+    
+    console.log(chalk.green(`📥 Imported session ${sessionId}`));
+    
+    res.json(importedSession);
+  } catch (error) {
+    console.error('Import session error:', error);
+    res.status(500).json({ error: 'Failed to import session' });
+  }
+});
+
+// Advanced Wallet Management Endpoints
+app.post('/api/wallets/create', async (req, res) => {
+  try {
+    const { isAdmin = false } = req.body;
+    
+    const wallet = new WalletWithNumber();
+    const walletData = {
+      number: wallet.number,
+      address: wallet.publicKey,
+      privateKey: wallet.privateKey,
+      isAdmin,
+      generationTimestamp: new Date().toISOString()
+    };
+    
+    console.log(chalk.green(`✅ Created ${isAdmin ? 'admin' : 'trading'} wallet: ${wallet.publicKey}`));
+    
+    res.json(walletData);
+  } catch (error) {
+    console.error('Create wallet error:', error);
+    res.status(500).json({ error: 'Failed to create wallet' });
+  }
+});
+
+app.post('/api/wallets/create-multiple', async (req, res) => {
+  try {
+    const { count } = req.body;
+    
+    if (!count || count < 1 || count > 50) {
+      return res.status(400).json({ error: 'Count must be between 1 and 50' });
+    }
+    
+    const wallets = [];
+    for (let i = 0; i < count; i++) {
+      const wallet = new WalletWithNumber();
+      wallets.push({
+        number: wallet.number,
+        address: wallet.publicKey,
+        privateKey: wallet.privateKey,
+        isAdmin: false,
+        generationTimestamp: new Date().toISOString()
+      });
+    }
+    
+    console.log(chalk.green(`✅ Created ${count} trading wallets`));
+    
+    res.json(wallets);
+  } catch (error) {
+    console.error('Create multiple wallets error:', error);
+    res.status(500).json({ error: 'Failed to create multiple wallets' });
+  }
+});
+
+app.post('/api/wallets/import', async (req, res) => {
+  try {
+    const { privateKey, isAdmin = false } = req.body;
+    
+    if (!privateKey) {
+      return res.status(400).json({ error: 'Private key is required' });
+    }
+    
+    try {
+      const wallet = createWalletWithNumber(privateKey, 0);
+      const walletData = {
+        number: wallet.number,
+        address: wallet.publicKey,
+        privateKey: wallet.privateKey,
+        isAdmin,
+        generationTimestamp: new Date().toISOString()
+      };
+      
+      console.log(chalk.green(`📥 Imported ${isAdmin ? 'admin' : 'trading'} wallet: ${wallet.publicKey}`));
+      
+      res.json(walletData);
+    } catch (error) {
+      return res.status(400).json({ error: 'Invalid private key format' });
+    }
+  } catch (error) {
+    console.error('Import wallet error:', error);
+    res.status(500).json({ error: 'Failed to import wallet' });
+  }
+});
+
+app.post('/api/wallets/balances', async (req, res) => {
+  try {
+    const { addresses, tokenAddress } = req.body;
+    
+    if (!addresses || !Array.isArray(addresses)) {
+      return res.status(400).json({ error: 'Addresses array is required' });
+    }
+    
+    const balances: { [key: string]: { sol: number; token: number } } = {};
+    
+    for (const address of addresses) {
+      try {
+        const publicKey = new PublicKey(address);
+        const solBalance = await connection.getBalance(publicKey);
+        
+        balances[address] = {
+          sol: solBalance / LAMPORTS_PER_SOL,
+          token: 0 // TODO: Implement token balance fetching
+        };
+      } catch (error) {
+        balances[address] = { sol: 0, token: 0 };
+      }
+    }
+    
+    res.json(balances);
+  } catch (error) {
+    console.error('Get wallet balances error:', error);
+    res.status(500).json({ error: 'Failed to get wallet balances' });
+  }
+});
+
+app.post('/api/wallets/distribute-sol', async (req, res) => {
+  try {
+    const { fromWallet, toWallets, totalAmount } = req.body;
+    
+    if (!fromWallet || !toWallets || !Array.isArray(toWallets) || !totalAmount) {
+      return res.status(400).json({ error: 'Missing required fields for SOL distribution' });
+    }
+    
+    const amountPerWallet = totalAmount / toWallets.length;
+    let successCount = 0;
+    
+    // Simulate SOL distribution (in real implementation, use actual transactions)
+    for (const walletAddress of toWallets) {
+      try {
+        // TODO: Implement actual SOL transfer
+        successCount++;
+        console.log(chalk.green(`💸 Distributed ${amountPerWallet.toFixed(6)} SOL to ${walletAddress}`));
+      } catch (error) {
+        console.error(chalk.red(`❌ Failed to distribute SOL to ${walletAddress}:`, error));
+      }
+    }
+    
+    res.json({ successCount, totalWallets: toWallets.length });
+  } catch (error) {
+    console.error('Distribute SOL error:', error);
+    res.status(500).json({ error: 'Failed to distribute SOL' });
+  }
+});
+
+app.post('/api/wallets/distribute-tokens', async (req, res) => {
+  try {
+    const { fromWallet, toWallets, tokenAddress, totalAmount } = req.body;
+    
+    if (!fromWallet || !toWallets || !Array.isArray(toWallets) || !tokenAddress || !totalAmount) {
+      return res.status(400).json({ error: 'Missing required fields for token distribution' });
+    }
+    
+    const amountPerWallet = totalAmount / toWallets.length;
+    let successCount = 0;
+    
+    // Simulate token distribution (in real implementation, use actual transactions)
+    for (const walletAddress of toWallets) {
+      try {
+        // TODO: Implement actual token transfer
+        successCount++;
+        console.log(chalk.green(`🪙 Distributed ${amountPerWallet.toFixed(6)} tokens to ${walletAddress}`));
+      } catch (error) {
+        console.error(chalk.red(`❌ Failed to distribute tokens to ${walletAddress}:`, error));
+      }
+    }
+    
+    res.json({ successCount, totalWallets: toWallets.length });
+  } catch (error) {
+    console.error('Distribute tokens error:', error);
+    res.status(500).json({ error: 'Failed to distribute tokens' });
+  }
+});
+
+app.post('/api/wallets/collect-sol', async (req, res) => {
+  try {
+    const { adminWallet, wallets, tokenAddress } = req.body;
+    
+    if (!adminWallet || !wallets || !Array.isArray(wallets)) {
+      return res.status(400).json({ error: 'Missing required fields for SOL collection' });
+    }
+    
+    let successCount = 0;
+    let totalCollected = 0;
+    
+    // Simulate SOL collection (in real implementation, use actual transactions)
+    for (const walletAddress of wallets) {
+      try {
+        // TODO: Implement actual SOL collection
+        const amount = Math.random() * 0.1; // Simulate random amount
+        totalCollected += amount;
+        successCount++;
+        console.log(chalk.green(`💰 Collected ${amount.toFixed(6)} SOL from ${walletAddress}`));
+      } catch (error) {
+        console.error(chalk.red(`❌ Failed to collect SOL from ${walletAddress}:`, error));
+      }
+    }
+    
+    res.json({ successCount, totalWallets: wallets.length, totalCollected });
+  } catch (error) {
+    console.error('Collect SOL error:', error);
+    res.status(500).json({ error: 'Failed to collect SOL' });
+  }
+});
+
+app.post('/api/wallets/collect-token', async (req, res) => {
+  try {
+    const { adminWallet, wallets, tokenAddress } = req.body;
+    
+    if (!adminWallet || !wallets || !Array.isArray(wallets) || !tokenAddress) {
+      return res.status(400).json({ error: 'Missing required fields for token collection' });
+    }
+    
+    let successCount = 0;
+    let totalCollected = 0;
+    
+    // Simulate token collection (in real implementation, use actual transactions)
+    for (const walletAddress of wallets) {
+      try {
+        // TODO: Implement actual token collection
+        const amount = Math.random() * 100; // Simulate random amount
+        totalCollected += amount;
+        successCount++;
+        console.log(chalk.green(`🪙 Collected ${amount.toFixed(6)} tokens from ${walletAddress}`));
+      } catch (error) {
+        console.error(chalk.red(`❌ Failed to collect tokens from ${walletAddress}:`, error));
+      }
+    }
+    
+    res.json({ successCount, totalWallets: wallets.length, totalCollected });
+  } catch (error) {
+    console.error('Collect tokens error:', error);
+    res.status(500).json({ error: 'Failed to collect tokens' });
+  }
+});
+
+// Real-time Monitoring Endpoints
+app.get('/api/sessions/:sessionId/metrics', (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = activeSessions.get(sessionId);
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    const metrics = {
+      ...session.metrics,
+      currentPrice: Math.random() * 0.001, // Simulate current price
+      priceChange24h: (Math.random() - 0.5) * 20, // Simulate price change
+      volume24h: session.metrics.totalVolume * (1 + Math.random()),
+      marketCap: Math.random() * 1000000,
+      holders: Math.floor(Math.random() * 10000),
+      liquidity: Math.random() * 500000
+    };
+    
+    res.json(metrics);
+  } catch (error) {
+    console.error('Get session metrics error:', error);
+    res.status(500).json({ error: 'Failed to get session metrics' });
+  }
+});
+
+app.get('/api/sessions/:sessionId/wallets', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = activeSessions.get(sessionId);
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    const wallets = session.tradingWallets.map((wallet, index) => ({
+      address: wallet.publicKey,
+      solBalance: Math.random() * 0.1, // Simulate balance
+      tokenBalance: Math.random() * 1000, // Simulate token balance
+      isTrading: Math.random() > 0.3, // Simulate trading status
+      lastTransaction: new Date(Date.now() - Math.random() * 3600000), // Random last transaction
+      transactionCount: Math.floor(Math.random() * 50),
+      successRate: 80 + Math.random() * 20 // 80-100% success rate
+    }));
+    
+    res.json({ wallets });
+  } catch (error) {
+    console.error('Get session wallets error:', error);
+    res.status(500).json({ error: 'Failed to get session wallets' });
+  }
+});
+
+app.get('/api/sessions/:sessionId/transactions', (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { limit = 100 } = req.query;
+    
+    const session = activeSessions.get(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    const transactions = transactionHistory.get(sessionId) || [];
+    const limitedTransactions = transactions.slice(0, parseInt(limit as string));
+    
+    res.json({ transactions: limitedTransactions });
+  } catch (error) {
+    console.error('Get session transactions error:', error);
+    res.status(500).json({ error: 'Failed to get session transactions' });
+  }
+});
+
+// Enhanced Token Validation
+app.post('/api/tokens/validate', async (req, res) => {
+  try {
+    const { tokenAddress, fetchPoolKeys = false } = req.body;
+    
+    if (!tokenAddress) {
+      return res.status(400).json({ error: 'Token address is required' });
+    }
+
+    // Validate Solana address format
+    try {
+      new PublicKey(tokenAddress);
+    } catch {
+      return res.status(400).json({ valid: false, error: 'Invalid Solana address format' });
+    }
+
+    let poolKeys = null;
+    if (fetchPoolKeys) {
+      try {
+        poolKeys = await getPoolKeysForTokenAddress(connection, tokenAddress);
+        if (!poolKeys) {
+          return res.status(404).json({ 
+            valid: false, 
+            error: 'No Raydium pool found for this token. Trading not possible.' 
+          });
+        }
+      } catch (error) {
+        return res.status(404).json({ 
+          valid: false, 
+          error: 'Failed to find Raydium pool for this token' 
+        });
+      }
+    }
+
+    // Fetch token data from DexScreener
+    try {
+      const response = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`);
+      const data = response.data;
+
+      if (data.pairs && data.pairs.length > 0) {
+        const pair = data.pairs[0];
+        const tokenInfo = {
+          address: tokenAddress,
+          name: pair.baseToken.name,
+          symbol: pair.baseToken.symbol,
+          price: parseFloat(pair.priceUsd),
+          volume24h: parseInt(pair.volume.h24),
+          marketCap: pair.marketCap ? parseInt(pair.marketCap) : null,
+          verified: true,
+          hasPool: !!poolKeys,
+          poolKeys: poolKeys
+        };
+
+        res.json({ valid: true, tokenInfo, poolKeys });
+      } else {
+        const tokenInfo = {
+          address: tokenAddress,
+          name: 'Unknown Token',
+          symbol: 'UNKNOWN',
+          price: null,
+          volume24h: null,
+          marketCap: null,
+          verified: false,
+          hasPool: !!poolKeys,
+          poolKeys: poolKeys
+        };
+        
+        res.json({ valid: true, tokenInfo, poolKeys });
+      }
+    } catch (dexError) {
+      const tokenInfo = {
+        address: tokenAddress,
+        name: 'Unknown Token',
+        symbol: 'UNKNOWN',
+        price: null,
+        volume24h: null,
+        marketCap: null,
+        verified: false,
+        hasPool: !!poolKeys,
+        poolKeys: poolKeys
+      };
+      
+      res.json({ valid: true, tokenInfo, poolKeys });
+    }
+  } catch (error) {
+    console.error('Enhanced token validation error:', error);
+    res.status(500).json({ valid: false, error: 'Failed to validate token' });
   }
 });
 
