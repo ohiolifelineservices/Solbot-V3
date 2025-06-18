@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Play, Pause, Square, Settings, Search, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { TokenInfo } from '@/types'
 
 interface TradingControlsProps {
   isTrading: boolean
@@ -17,7 +18,7 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange }:
   const [walletCount, setWalletCount] = useState(5)
   const [solAmount, setSolAmount] = useState(0.1)
   const [isValidating, setIsValidating] = useState(false)
-  const [tokenInfo, setTokenInfo] = useState(null)
+  const [tokenInfo, setTokenInfo] = useState<TokenInfo | null>(null)
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [isStarting, setIsStarting] = useState(false)
 
@@ -26,7 +27,7 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange }:
     
     setIsValidating(true)
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
       const response = await fetch(`${apiUrl}/api/tokens/validate`, {
         method: 'POST',
         headers: {
@@ -62,7 +63,7 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange }:
     setIsStarting(true)
     try {
       // Create real backend session
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
       const response = await fetch(`${apiUrl}/api/sessions`, {
         method: 'POST',
         headers: {
@@ -102,7 +103,7 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange }:
     if (!currentSessionId) return
     
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
       const response = await fetch(`${apiUrl}/api/sessions/${currentSessionId}/pause`, {
         method: 'POST',
       })
@@ -132,7 +133,7 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange }:
     }
     
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
       const response = await fetch(`${apiUrl}/api/sessions/${currentSessionId}/stop`, {
         method: 'POST',
       })
@@ -285,6 +286,20 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange }:
             />
           </div>
         </div>
+
+        {/* Session Information */}
+        {currentSessionId && (
+          <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-4">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-300">Active Session:</span>
+              <span className="text-green-400 font-semibold font-mono">{currentSessionId}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm mt-1">
+              <span className="text-gray-300">Status:</span>
+              <span className="text-green-400 font-semibold">Ready for Trading</span>
+            </div>
+          </div>
+        )}
 
         {/* Fee Information */}
         <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">

@@ -9,9 +9,11 @@ import { Server as SocketIOServer } from 'socket.io';
 import RaydiumSwap from './RaydiumSwap';
 import WalletWithNumber from './wallet';
 import { getPoolKeysForTokenAddress } from './pool-keys';
-import { getSolBalance } from './utility';
+import { getSolBalance, loadSession, saveSession, createWalletWithNumber, SessionData } from './utility';
 import chalk from 'chalk';
 import bs58 from 'bs58';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const app = express();
 const server = createServer(app);
@@ -22,14 +24,15 @@ const io = new SocketIOServer(server, {
   }
 });
 
-const PORT = process.env.API_PORT || 3001;
+const PORT = process.env.API_PORT || 12001;
 
 // Middleware
 app.use(cors({
   origin: [
     "http://localhost:3000",
     "http://localhost:12000",
-    "https://work-1-kmjcqvbxokuavmfv.prod-runtime.all-hands.dev"
+    "https://work-1-wstvhtbzaocrxqur.prod-runtime.all-hands.dev",
+    "https://work-2-wstvhtbzaocrxqur.prod-runtime.all-hands.dev"
   ],
   credentials: true
 }));
@@ -514,6 +517,195 @@ app.post('/api/sessions', async (req, res) => {
   }
 });
 
+// Session file management endpoints (must come before generic session routes)
+
+// Get all active sessions
+app.get('/api/sessions', (req, res) => {
+  try {
+    const sessions = Array.from(activeSessions.values()).map(session => ({
+      id: session.id,
+      userWallet: session.userWallet,
+      tokenAddress: session.tokenAddress,
+      tokenName: session.tokenName,
+      tokenSymbol: session.tokenSymbol,
+      strategy: session.strategy,
+      walletCount: session.walletCount,
+      solAmount: session.solAmount,
+      status: session.status,
+      createdAt: session.createdAt,
+      metrics: session.metrics
+    }));
+    
+    res.json({ success: true, sessions });
+  } catch (error) {
+    console.error('Get sessions error:', error);
+    res.status(500).json({ error: 'Failed to get sessions' });
+  }
+});
+
+// Get all session files
+app.get('/api/sessions/files', async (req, res) => {
+  try {
+    const sessionDir = swapConfig.SESSION_DIR;
+    
+    if (!fs.existsSync(sessionDir)) {
+      return res.json([]);
+    }
+    
+    const files = fs.readdirSync(sessionDir)
+      .filter(file => file.endsWith('_session.json'))
+      .map(file => {
+        const filePath = path.join(sessionDir, file);
+        const stats = fs.statSync(filePath);
+        
+        // Parse filename to extract info
+        const parts = file.replace('_session.json', '').split('_');
+        const tokenName = parts[0] || 'Unknown';
+        const timestamp = parts.slice(1).join('_') || 'Unknown';
+        
+        return {
+          filename: file,
+          tokenName,
+          timestamp,
+          size: `${(stats.size / 1024).toFixed(2)} KB`,
+          lastModified: stats.mtime,
+          fullPath: filePath
+        };
+      })
+      .sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime());
+    
+    res.json(files);
+  } catch (error) {
+    console.error('Get session files error:', error);
+    res.status(500).json({ error: 'Failed to get session files' });
+  }
+});
+
+// Get session file content
+app.get('/api/sessions/files/:filename', async (req, res) => {
+  try {
+    const { filename } = req.params;
+    const sessionDir = swapConfig.SESSION_DIR;
+    const filePath = path.join(sessionDir, filename);
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Session file not found' });
+    }
+    
+    const fileContent = fs.readFileSync(filePath, 'utf-8');
+    const sessionData = JSON.parse(fileContent);
+    
+    res.json(sessionData);
+  } catch (error) {
+    console.error('Get session file error:', error);
+    res.status(500).json({ error: 'Failed to load session file' });
+  }
+});
+
+// Import session from file
+app.post('/api/sessions/import', async (req, res) => {
+  try {
+    const { filename } = req.body;
+    
+    if (!filename) {
+      return res.status(400).json({ error: 'Filename is required' });
+    }
+    
+    const sessionDir = swapConfig.SESSION_DIR;
+    const filePath = path.join(sessionDir, filename);
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Session file not found' });
+    }
+    
+    const fileContent = fs.readFileSync(filePath, 'utf-8');
+    const sessionData: SessionData = JSON.parse(fileContent);
+    
+    // Create new active session from file data
+    const sessionId = `imported_${Date.now()}`;
+    const newSession: TradingSession = {
+      id: sessionId,
+      userWallet: sessionData.admin.address,
+      tokenAddress: sessionData.tokenAddress,
+      tokenName: sessionData.tokenName,
+      tokenSymbol: sessionData.tokenName, // Use tokenName as symbol
+      strategy: 'VOLUME_ONLY', // Default strategy
+      walletCount: sessionData.wallets.length,
+      solAmount: 0.1, // Default amount
+      status: 'created',
+      adminWallet: null, // Will be set when session starts
+      tradingWallets: [], // Will be populated when session starts
+      poolKeys: sessionData.poolKeys,
+      createdAt: new Date(),
+      metrics: {
+        totalVolume: 0,
+        totalTransactions: 0,
+        successfulTransactions: 0,
+        failedTransactions: 0,
+        totalFees: 0,
+        averageSlippage: 0
+      }
+    };
+    
+    activeSessions.set(sessionId, newSession);
+    transactionHistory.set(sessionId, []);
+    
+    console.log(chalk.green(`✅ Imported session ${sessionId} from file ${filename}`));
+    
+    res.json({ 
+      success: true, 
+      sessionId,
+      session: newSession,
+      message: 'Session imported successfully' 
+    });
+  } catch (error) {
+    console.error('Import session error:', error);
+    res.status(500).json({ error: 'Failed to import session' });
+  }
+});
+
+// Wallet creation endpoint
+app.post('/api/wallets/create', async (req, res) => {
+  try {
+    const { type, privateKey, mnemonic } = req.body;
+    
+    if (type === 'import') {
+      if (!privateKey) {
+        return res.status(400).json({ error: 'Private key is required for import' });
+      }
+      
+      try {
+        const wallet = Keypair.fromSecretKey(bs58.decode(privateKey));
+        const publicKey = wallet.publicKey.toString();
+        
+        res.json({
+          success: true,
+          publicKey,
+          message: 'Wallet imported successfully'
+        });
+      } catch (error) {
+        return res.status(400).json({ error: 'Invalid private key format' });
+      }
+    } else if (type === 'generate') {
+      const wallet = Keypair.generate();
+      const publicKey = wallet.publicKey.toString();
+      const secretKey = bs58.encode(wallet.secretKey);
+      
+      res.json({
+        success: true,
+        publicKey,
+        privateKey: secretKey,
+        message: 'Wallet generated successfully'
+      });
+    } else {
+      res.status(400).json({ error: 'Invalid wallet creation type' });
+    }
+  } catch (error) {
+    console.error('Wallet creation error:', error);
+    res.status(500).json({ error: 'Failed to create wallet' });
+  }
+});
+
 // Get session details
 app.get('/api/sessions/:sessionId', (req, res) => {
   try {
@@ -867,6 +1059,8 @@ app.use((error: any, req: express.Request, res: express.Response, next: express.
   console.error('API Error:', error);
   res.status(500).json({ error: 'Internal server error' });
 });
+
+
 
 // Graceful shutdown
 process.on('SIGINT', () => {

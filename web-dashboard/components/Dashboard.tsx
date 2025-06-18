@@ -23,6 +23,8 @@ import { MetricsCards } from './MetricsCards'
 import { VolumeChart } from './VolumeChart'
 import { TransactionHistory } from './TransactionHistory'
 import { WalletManager } from './WalletManager'
+import { WalletCreator } from './WalletCreator'
+import { SessionManager } from './SessionManager'
 import { UserStats } from './UserStats'
 
 export function Dashboard() {
@@ -34,6 +36,7 @@ export function Dashboard() {
 
   const tabs = [
     { id: 'trading', label: 'Trading', icon: TrendingUp },
+    { id: 'sessions', label: 'Sessions', icon: Activity },
     { id: 'wallets', label: 'Wallets', icon: Wallet },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'settings', label: 'Settings', icon: Settings },
@@ -112,6 +115,18 @@ export function Dashboard() {
                 </div>
               </div>
               <TransactionHistory />
+            </div>
+          )}
+
+          {activeTab === 'sessions' && (
+            <div className="space-y-8">
+              <SessionManager 
+                onSessionImport={(sessionId) => {
+                  setCurrentSessionId(sessionId)
+                  setActiveTab('trading')
+                }}
+              />
+              <WalletCreator />
             </div>
           )}
 
