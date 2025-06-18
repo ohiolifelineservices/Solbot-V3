@@ -31,8 +31,8 @@ app.use(cors({
   origin: [
     "http://localhost:3000",
     "http://localhost:12000",
-    "https://work-1-wstvhtbzaocrxqur.prod-runtime.all-hands.dev",
-    "https://work-2-wstvhtbzaocrxqur.prod-runtime.all-hands.dev"
+    "https://work-1-kxzaxehtnlgqnzjs.prod-runtime.all-hands.dev",
+    "https://work-2-kxzaxehtnlgqnzjs.prod-runtime.all-hands.dev"
   ],
   credentials: true
 }));

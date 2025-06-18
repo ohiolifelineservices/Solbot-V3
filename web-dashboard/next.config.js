@@ -1,8 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    appDir: true,
-  },
   webpack: (config) => {
     config.resolve.fallback = {
       ...config.resolve.fallback,
@@ -10,11 +7,18 @@ const nextConfig = {
       net: false,
       tls: false,
     };
+    
+    // Ignore pino-pretty to avoid build issues
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'pino-pretty': false,
+    };
+    
     return config;
   },
   env: {
     NEXT_PUBLIC_API_URL: process.env.NODE_ENV === 'production' 
-      ? 'https://work-2-wstvhtbzaocrxqur.prod-runtime.all-hands.dev'
+      ? 'https://work-2-kxzaxehtnlgqnzjs.prod-runtime.all-hands.dev'
       : 'http://localhost:12001'
   },
   async headers() {
