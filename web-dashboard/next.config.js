@@ -18,7 +18,7 @@ const nextConfig = {
   },
   env: {
     NEXT_PUBLIC_API_URL: process.env.NODE_ENV === 'production' 
-      ? 'https://work-2-kxzaxehtnlgqnzjs.prod-runtime.all-hands.dev'
+      ? 'https://work-2-sirsbqizcgqhfecu.prod-runtime.all-hands.dev'
       : 'http://localhost:12001'
   },
   async headers() {

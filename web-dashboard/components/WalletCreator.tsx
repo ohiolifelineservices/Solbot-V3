@@ -36,15 +36,14 @@ export function WalletCreator({ onWalletCreated }: WalletCreatorProps) {
 
     setIsCreating(true)
     try {
-      const response = await fetch('/api/wallets/create', {
+      const response = await fetch('http://localhost:12001/api/wallets/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           type,
-          privateKey: type === 'import' ? privateKey.trim() : undefined,
-          userWallet: '11111111111111111111111111111111' // Default user wallet
+          privateKey: type === 'import' ? privateKey.trim() : undefined
         }),
       })
 
@@ -52,13 +51,20 @@ export function WalletCreator({ onWalletCreated }: WalletCreatorProps) {
         const data = await response.json()
         // Transform API response to match expected wallet format
         const wallet = {
+          id: `wallet_${Date.now()}`,
+          address: data.publicKey,
           publicKey: data.publicKey,
           privateKey: data.privateKey,
           solBalance: 0,
           tokenBalance: 0,
+          isActive: true,
           walletNumber: Date.now() // Generate a unique number
         }
         setCreatedWallet(wallet)
+        
+        // Save wallet to localStorage for dashboard
+        localStorage.setItem('currentWallet', JSON.stringify(wallet))
+        
         toast.success(data.message)
         onWalletCreated?.(wallet)
         

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { motion } from 'framer-motion'
-import { Play, Pause, Square, Settings, Search, AlertCircle } from 'lucide-react'
+import { Play, Pause, Square, Settings, Search, AlertCircle, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { TokenInfo } from '@/types'
 
@@ -12,9 +12,10 @@ interface TradingControlsProps {
   onTradingChange: (trading: boolean) => void
   onSessionChange: (sessionId: string | null) => void
   currentWallet?: any
+  onCreateWallet?: () => void
 }
 
-export function TradingControls({ isTrading, onTradingChange, onSessionChange, currentWallet }: TradingControlsProps) {
+export function TradingControls({ isTrading, onTradingChange, onSessionChange, currentWallet, onCreateWallet }: TradingControlsProps) {
   const { publicKey, connected } = useWallet()
   const [tokenAddress, setTokenAddress] = useState('')
   const [strategy, setStrategy] = useState('volume_only')
@@ -30,34 +31,35 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange, c
     
     setIsValidating(true)
     try {
-      // Call DexScreener API directly
-      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`)
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch token data')
-      }
+      // Call backend token validation endpoint (includes pool key fetching)
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
+      const response = await fetch(`${apiUrl}/api/tokens/validate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ tokenAddress }),
+      })
       
       const data = await response.json()
       
-      if (data.pairs && data.pairs.length > 0) {
-        const pair = data.pairs[0]
+      if (response.ok && data.valid && data.tokenInfo) {
         const tokenInfo = {
-          address: tokenAddress,
-          name: pair.baseToken.name,
-          symbol: pair.baseToken.symbol,
-          price: parseFloat(pair.priceUsd || '0'),
-          marketCap: pair.marketCap || 0,
-          liquidity: pair.liquidity?.usd || 0,
-          volume24h: pair.volume?.h24 || 0,
-          priceChange24h: pair.priceChange?.h24 || 0,
-          dexId: pair.dexId,
-          pairAddress: pair.pairAddress
+          address: data.tokenInfo.address,
+          name: data.tokenInfo.name,
+          symbol: data.tokenInfo.symbol,
+          price: data.tokenInfo.price,
+          volume24h: data.tokenInfo.volume24h,
+          marketCap: data.tokenInfo.marketCap,
+          verified: data.tokenInfo.verified,
+          hasPool: data.tokenInfo.hasPool,
+          poolKeys: data.tokenInfo.poolKeys
         }
         
         setTokenInfo(tokenInfo)
         toast.success(`Token validated: ${tokenInfo.name} (${tokenInfo.symbol})`)
       } else {
-        toast.error('Token not found or no trading pairs available')
+        toast.error(data.error || 'Token validation failed')
         setTokenInfo(null)
       }
     } catch (error) {
@@ -180,6 +182,27 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange, c
     }
   }
 
+  const restartTrading = async () => {
+    if (!currentSessionId) return
+    
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12001'
+      const response = await fetch(`${apiUrl}/api/sessions/${currentSessionId}/restart`, {
+        method: 'POST',
+      })
+      
+      if (response.ok) {
+        onTradingChange(true)
+        toast.success('Trading restarted')
+      } else {
+        throw new Error('Failed to restart session')
+      }
+    } catch (error) {
+      console.error('Restart trading error:', error)
+      toast.error('Failed to restart trading')
+    }
+  }
+
   return (
     <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
       <div className="flex items-center justify-between mb-6">
@@ -214,7 +237,7 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange, c
           </div>
           {!currentWallet && (
             <button
-              onClick={() => window.location.href = '/'}
+              onClick={() => onCreateWallet?.()}
               className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded transition-colors"
             >
               Create Wallet
@@ -367,23 +390,34 @@ export function TradingControls({ isTrading, onTradingChange, onSessionChange, c
         {/* Control Buttons */}
         <div className="flex space-x-3">
           {!isTrading ? (
-            <button
-              onClick={startTrading}
-              disabled={!tokenInfo || isStarting}
-              className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-3 rounded-lg font-semibold transition-colors duration-200 flex items-center justify-center space-x-2"
-            >
-              {isStarting ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  <span>Creating Session...</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-5 h-5" />
-                  <span>Start Trading</span>
-                </>
+            <div className="flex space-x-3 w-full">
+              <button
+                onClick={startTrading}
+                disabled={!tokenInfo || isStarting}
+                className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-3 rounded-lg font-semibold transition-colors duration-200 flex items-center justify-center space-x-2"
+              >
+                {isStarting ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Creating Session...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-5 h-5" />
+                    <span>Start Trading</span>
+                  </>
+                )}
+              </button>
+              {currentSessionId && (
+                <button
+                  onClick={restartTrading}
+                  className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg font-semibold transition-colors duration-200 flex items-center justify-center space-x-2"
+                >
+                  <RefreshCw className="w-5 h-5" />
+                  <span>Restart</span>
+                </button>
               )}
-            </button>
+            </div>
           ) : (
             <>
               <button

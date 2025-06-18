@@ -31,8 +31,8 @@ app.use(cors({
   origin: [
     "http://localhost:3000",
     "http://localhost:12000",
-    "https://work-1-kxzaxehtnlgqnzjs.prod-runtime.all-hands.dev",
-    "https://work-2-kxzaxehtnlgqnzjs.prod-runtime.all-hands.dev"
+    "https://work-1-sirsbqizcgqhfecu.prod-runtime.all-hands.dev",
+    "https://work-2-sirsbqizcgqhfecu.prod-runtime.all-hands.dev"
   ],
   credentials: true
 }));
@@ -940,6 +940,48 @@ app.post('/api/sessions/:sessionId/stop', async (req, res) => {
   } catch (error) {
     console.error('Stop session error:', error);
     res.status(500).json({ error: 'Failed to stop session' });
+  }
+});
+
+// Restart trading session
+app.post('/api/sessions/:sessionId/restart', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = activeSessions.get(sessionId);
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    if (session.status === 'active') {
+      return res.status(400).json({ error: 'Session is already active' });
+    }
+
+    // Collect fee before restarting
+    const feeCollected = await collectFee(session.userWallet, sessionId);
+    if (!feeCollected) {
+      return res.status(400).json({ error: 'Fee collection failed' });
+    }
+
+    // Update session status
+    session.status = 'active';
+    session.startTime = new Date();
+    session.endTime = undefined;
+
+    // Start trading loop
+    const interval = setInterval(async () => {
+      await executeTrade(sessionId);
+    }, swapConfig.loopInterval);
+
+    tradingIntervals.set(sessionId, interval);
+
+    console.log(chalk.green(`🔄 Restarted trading session: ${sessionId}`));
+    emitToSession(sessionId, 'sessionRestarted', { sessionId, session });
+    
+    res.json({ message: 'Trading session restarted', session });
+  } catch (error) {
+    console.error('Restart session error:', error);
+    res.status(500).json({ error: 'Failed to restart session' });
   }
 });
 
